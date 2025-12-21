@@ -127,13 +127,6 @@ There are no limitations about which package the function should be in, but it i
 In case of `expect`/`actual` declarations, only the `expect` matters since `actual` declarations must match the signature of `expect`:
 but make sure to annotate `actual` declarations with `@ConstructorLike`, otherwise the behavior of the plugin is undefined.
 
-Support for [context parameters](https://kotlinlang.org/docs/context-parameters.html) is experimental,
-and can be enabled by using [ConstructorLikeConfiguration](dokka-plugin/src/main/kotlin/ConstructorLikeConfiguration.kt).
-See https://kotlinlang.org/docs/dokka-migration.html#configure-dokka-plugins for how to configure plugins.
-When enabled, context parameters will be displayed as-is, while the receiver will be replaced by prepending a context parameter named `this`.
-Also, extension functions annotated with `@ConstructorLike` will be allowed in all class types, including companion objects.
-Package-level extension functions still must have its receiver as the companion object, but it may have context parameters.
-
 # License
 
 This project's source code is *mainly* licensed with [MPL 2.0](LICENSE).

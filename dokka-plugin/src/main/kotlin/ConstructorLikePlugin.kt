@@ -8,11 +8,7 @@
 
 package io.github.spacedvoid.constructorlike.dokkaplugin
 
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import org.jetbrains.dokka.CoreExtensions
-import org.jetbrains.dokka.DokkaConfiguration
-import org.jetbrains.dokka.plugability.DokkaContext
 import org.jetbrains.dokka.plugability.DokkaPlugin
 import org.jetbrains.dokka.plugability.DokkaPluginApiPreview
 import org.jetbrains.dokka.plugability.Extension
@@ -29,16 +25,4 @@ class ConstructorLikePlugin: DokkaPlugin() {
 
 	@Suppress("unused")
 	val constructorLikeInjector: Extension<PageTransformer, *, *> by extending { CoreExtensions.pageTransformer providing ::ConstructorLikeInjector }
-}
-
-@Serializable
-data class ConstructorLikeConfiguration(var contextParametersEnabled: Boolean = false)
-
-fun contextParametersEnabled(context: DokkaContext): Boolean {
-	val pluginConfig = context.configuration.pluginsConfiguration
-		.find { it.fqPluginName == ConstructorLikePlugin::class.qualifiedName }
-		?: return false
-	if(pluginConfig.serializationFormat != DokkaConfiguration.SerializationFormat.JSON)
-		throw IllegalStateException("ConstructorLikePlugin only supports configuration via JSON format, found ${pluginConfig.serializationFormat} format instead")
-	return Json.decodeFromString<ConstructorLikeConfiguration>(pluginConfig.values).contextParametersEnabled
 }

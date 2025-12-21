@@ -32,19 +32,18 @@ import org.jetbrains.dokka.utilities.DokkaLogger
 
 class ConstructorLikeFinder: DocumentableTransformer {
 	override fun invoke(original: DModule, context: DokkaContext): DModule {
-		val contextParametersEnabled = contextParametersEnabled(context)
 		val pseudoConstructors = original.withDescendants()
 			.filterIsInstance<DFunction>()
 			.fold(mutableMapOf<DRI, MutableList<PseudoConstructor>>()) { map, it ->
 				if(!it.isConstructorLike) return@fold map
-				when(val estimation = it.estimateTargetClass(contextParametersEnabled)) {
+				when(val estimation = it.estimateTargetClass()) {
 					is Estimation.Found -> map.getOrPut(estimation.targetClass) { mutableListOf() }.add(PseudoConstructor(it))
 					is Estimation.Invalid ->
 						context.logger.warn("Annotation @ConstructorLike cannot be applied to ${it.asString()} because ${estimation.reason}")
 				}
 				return@fold map
 			}
-		return original.injectPseudoConstructors(pseudoConstructors).also { context.logger.reportUnused(pseudoConstructors) }
+		return original.recordPseudoConstructors(pseudoConstructors).also { context.logger.reportUnused(pseudoConstructors) }
 	}
 
 	private val DFunction.isConstructorLike: Boolean
@@ -66,32 +65,35 @@ class ConstructorLikeFinder: DocumentableTransformer {
 		value class Invalid(val reason: String): Estimation
 	}
 
-	/**
-	 * Once context parameters are stable, [contextParametersEnabled] will be removed and replaced with `true`.
-	 */
-	private fun DFunction.estimateTargetClass(contextParametersEnabled: Boolean): Estimation = when {
+	private fun DFunction.estimateTargetClass(): Estimation = when {
 		this.name == "invoke" -> when {
 			!this.isOperator -> Estimation.Invalid("the function is not marked 'operator'")
 			this.receiver == null && this.dri.parent.classNames == null ->
 				Estimation.Invalid("the function is not an extension of a companion object or is not in one")
-			!contextParametersEnabled && this.receiver != null && this.dri.parent.classNames != null ->
+			this.receiver != null && this.dri.parent.classNames != null ->
 				Estimation.Invalid("the function is an extension in a companion object or a class")
-			this.type !is GenericTypeConstructor -> Estimation.Invalid("the function does not return a class type")
 			else -> run {
 				val receiver = this.receiver?.type
 				val parent = this.dri.parent
-				val returnType = (this.type as GenericTypeConstructor).dri
+				val returnType = this.type
 				return@run when {
-					parent.classNames == null && !(receiver is GenericTypeConstructor && receiver.dri.parent == returnType) ->
+					returnType !is GenericTypeConstructor -> Estimation.Invalid("the function does not return a class type")
+					returnType.dri == DriOfUnit -> Estimation.Invalid("the function returns 'kotlin.Unit'")
+					returnType.dri == driOfNothing -> Estimation.Invalid("the function returns 'kotlin.Nothing'")
+					receiver != null && (receiver !is GenericTypeConstructor || receiver.dri.parent != returnType.dri) ->
 						Estimation.Invalid("the function's receiver is not a companion object of the return type")
-					receiver == null && parent.parent != returnType ->
+					receiver == null && parent.parent != returnType.dri ->
 						Estimation.Invalid("the class owning the function is not a companion object of the return type")
-					else -> Estimation.Found(returnType)
+					/*
+					 * We return the parent's dri because we cannot know whether the parent is really a companion object.
+					 * [recordPseudoConstructors] will handle this by checking the return type of the function.
+					 */
+					parent.classNames != null -> Estimation.Found(parent)
+					else -> Estimation.Found(receiver?.dri ?: returnType.dri)
 				}
 			}
 		}
-		!contextParametersEnabled && this.receiver != null ->
-			Estimation.Invalid("the function is not 'operator fun invoke' but is an extension")
+		this.receiver != null -> Estimation.Invalid("the function is not 'operator fun invoke' but is an extension")
 		else -> this.type.let {
 			when {
 				it !is GenericTypeConstructor -> Estimation.Invalid("the function does not return a class type")
@@ -113,33 +115,25 @@ class ConstructorLikeFinder: DocumentableTransformer {
 	/**
 	 * We need to check whether the pseudo-constructors refers to a valid class or interface in the same module,
 	 * but we don't want to re-navigate the [Documentable] tree to check it.
-	 * So we create an intermediate object and store whether the pseudo-constructors were [used] in [injectPseudoConstructors]
+	 * So we create an intermediate object and store whether the pseudo-constructors were [used] in [recordPseudoConstructors]
 	 * and raise warnings with [reportUnused].
 	 */
 	private class PseudoConstructor(original: DFunction) {
-		val sourceSets = original.sourceSets
-
 		@OptIn(ExperimentalDokkaApi::class)
 		val constructor = original.copy(
 			isConstructor = true,
-			receiver = null,
-			contextParameters = (original.receiver
-				?.takeIf { it.dri.parent.classNames != null }
-				?.copy(name = "_")
-				?.let { listOf(it) }
-				?: emptyList()
-			) + original.contextParameters
+			receiver = null
 		)
 
 		var used: Boolean = false
 	}
 
 	@Suppress("UNCHECKED_CAST")
-	private fun <T: Documentable> T.injectPseudoConstructors(
+	private fun <T: Documentable> T.recordPseudoConstructors(
 		constructors: Map<DRI, List<PseudoConstructor>>
 	): T = when(this) {
-		is DModule -> copy(packages = this.packages.map { it.injectPseudoConstructors(constructors) })
-		is DPackage -> copy(classlikes = this.classlikes.map { it.injectPseudoConstructors(constructors) })
+		is DModule -> copy(packages = this.packages.map { it.recordPseudoConstructors(constructors) })
+		is DPackage -> copy(classlikes = this.classlikes.map { it.recordPseudoConstructors(constructors) })
 		is DClass -> copy(extra = this.extra + InjectedConstructors(extractConstructorsFrom(constructors)))
 		is DInterface -> copy(extra = this.extra + InjectedConstructors(extractConstructorsFrom(constructors)))
 		else -> this
@@ -147,15 +141,22 @@ class ConstructorLikeFinder: DocumentableTransformer {
 
 	private fun <T> T.extractConstructorsFrom(constructors: Map<DRI, List<PseudoConstructor>>): List<DFunction>
 	where T: Documentable, T: WithCompanion = buildList {
-		constructors[this@extractConstructorsFrom.dri]?.forEach {
-			if(!this@extractConstructorsFrom.sourceSets.containsAll(it.sourceSets)) return@forEach
-			add(it.constructor)
-			it.used = true
-		}
+		constructors[this@extractConstructorsFrom.dri]
+			?.asSequence()
+			?.filter {
+				this@extractConstructorsFrom.sourceSets.containsAll(it.constructor.sourceSets)
+				// See [estimateTargetClass] for the reason of this check.
+				&& (it.constructor.type as GenericTypeConstructor).dri == this@extractConstructorsFrom.dri
+			}
+			?.forEach {
+				add(it.constructor)
+				it.used = true
+			}
 		this@extractConstructorsFrom.companion?.dri
 			?.let { constructors[it] }
+			?.asSequence()
+			?.filter { this@extractConstructorsFrom.sourceSets.containsAll(it.constructor.sourceSets) }
 			?.forEach {
-				if(!this@extractConstructorsFrom.sourceSets.containsAll(it.sourceSets)) return@forEach
 				add(it.constructor)
 				it.used = true
 			}
@@ -166,8 +167,9 @@ class ConstructorLikeFinder: DocumentableTransformer {
 			l.forEach {
 				if(it.used) return@forEach
 				this@reportUnused.warn(
-					"Annotation @ConstructorLike cannot be applied to ${it.constructor.asString()} because " +
-					"the target class $dri cannot be found, is in a different module, or is an annotation class, enum class, or object."
+					"Annotation @ConstructorLike cannot be applied to ${it.constructor.asString()} because "
+					+ "the target class $dri cannot be found, is in a different module, is an annotation class, enum class, or object, "
+					+ "or the function is not in a companion object."
 				)
 			}
 		}

@@ -110,7 +110,7 @@ internal fun PageContentBuilder.DocumentableContentBuilder.addSignature(document
 
 private fun PageContentBuilder.DocumentableContentBuilder.addGenericsSignature(signatures: List<ContentNode>, generics: List<DTypeParameter>): List<ContentGroup> =
 	signatures.map { signature ->
-		// Position of where to put generics info can be rediscussed, it is currently right before the `constructor` keyword
+		// Position of where to put generics info can be rediscussed, it is currently right before the `constructor` keyword like functions
 		val constructorTextIndex = signature.children.indexOfFirst { it is ContentText && it.text == "constructor" }
 		return@map buildGroup(kind = ContentKind.Symbol, styles = setOf(TextStyle.Monospace)) {
 			repeat(constructorTextIndex) { +signature.children[it] }
