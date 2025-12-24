@@ -40,21 +40,30 @@ import org.jetbrains.dokka.transformers.pages.PageTransformer
 class ConstructorLikeInjector(private val context: DokkaContext): PageTransformer {
 	override fun invoke(input: RootPageNode): RootPageNode = input.injectConstructors(createContentBuilder(this.context))
 
+	private fun createContentBuilder(context: DokkaContext): PageContentBuilder =
+		with(context.plugin<DokkaBase>()) {
+			PageContentBuilder(
+				querySingle { this.commentsToContentConverter },
+				querySingle { this.signatureProvider },
+				context.logger
+			)
+		}
+
 	@Suppress("UNCHECKED_CAST")
 	private fun <T: PageNode> T.injectConstructors(builder: PageContentBuilder): T = when(this) {
-		is ClasslikePageNode -> builder.injectConstructors(this)
+		is ClasslikePageNode -> injectConstructors(builder)
 		else -> modified(children = this.children.map { it.injectConstructors(builder) })
 	} as T
 
-	private fun PageContentBuilder.injectConstructors(classPage: ClasslikePageNode): ClasslikePageNode {
-		val constructors = classPage.documentables.flatMap {
+	private fun ClasslikePageNode.injectConstructors(builder: PageContentBuilder): ClasslikePageNode {
+		val constructors = this.documentables.flatMap {
 			@Suppress("UNCHECKED_CAST")
 			(it as? WithExtraProperties<DClasslike>)?.extra[InjectedConstructors.Key]?.constructors ?: listOf()
 		}
-		// Inserts the pseudo-constructors to the constructors table, creating one if not present
-		return classPage.modified(content = (classPage.content as ContentGroup).replacing<ContentGroup>(1) {
+		// Insert the pseudo-constructors to the constructors table, creating one if not present
+		return modified(content = (this.content as ContentGroup).replacing<ContentGroup>(1) {
 			if(it.withDescendants().none { it.extra[TabbedContentTypeExtra]?.value == BasicTabbedContentType.CONSTRUCTOR })
-				it.copy(children = listOf(contentForConstructors(classPage.documentables, constructors)) + it.children)
+				it.copy(children = listOf(builder.contentForConstructors(this.documentables, constructors)) + it.children)
 			else it.replacing<ContentGroup>(0) {
 				it.replacing<ContentGroup>(0) {
 					it.replacing<ContentTable>(1) {
@@ -62,7 +71,7 @@ class ConstructorLikeInjector(private val context: DokkaContext): PageTransforme
 							dci = it.dci.copy(dri = it.dci.dri + constructors.mapTo(mutableSetOf()) { it.dri }),
 							sourceSets = it.sourceSets + constructors.flatMapTo(mutableSetOf()) { it.sourceSets.toDisplaySourceSets() },
 							children = it.children + constructors.map {
-								contentFor(
+								builder.contentFor(
 									it.dri,
 									it.sourceSets,
 									ContentKind.Constructors,
@@ -87,28 +96,19 @@ class ConstructorLikeInjector(private val context: DokkaContext): PageTransforme
 		})
 	}
 
-	private fun createContentBuilder(context: DokkaContext): PageContentBuilder =
-		with(context.plugin<DokkaBase>()) {
-			PageContentBuilder(
-				querySingle { this.commentsToContentConverter },
-				querySingle { this.signatureProvider },
-				context.logger
-			)
-		}
+	private inline fun <reified T: ContentNode> ContentGroup.replacing(index: Int, crossinline replacement: (T) -> ContentNode): ContentGroup =
+		copy(children = this.children.toMutableList().also { it[index] = replacement(it[index] as T) })
 }
-
-private inline fun <reified T: ContentNode> ContentGroup.replacing(index: Int, crossinline replacement: (T) -> ContentNode): ContentGroup =
-	copy(children = this.children.toMutableList().also { it[index] = replacement(it[index] as T) })
 
 internal fun PageContentBuilder.DocumentableContentBuilder.addSignature(documentable: Documentable) {
 	if(documentable !is DFunction || !documentable.isConstructor) throw AssertionError("Got non-constructor documentable $documentable")
 	var signatures = buildSignature(documentable)
 	val generics = documentable.generics
-	if(generics.isNotEmpty()) signatures = addGenericsSignature(signatures, generics)
+	if(generics.isNotEmpty()) signatures = addGenericsToSignatures(signatures, generics)
 	+signatures
 }
 
-private fun PageContentBuilder.DocumentableContentBuilder.addGenericsSignature(signatures: List<ContentNode>, generics: List<DTypeParameter>): List<ContentGroup> =
+private fun PageContentBuilder.DocumentableContentBuilder.addGenericsToSignatures(signatures: List<ContentNode>, generics: List<DTypeParameter>): List<ContentGroup> =
 	signatures.map { signature ->
 		// Position of where to put generics info can be rediscussed, it is currently right before the `constructor` keyword like functions
 		val constructorTextIndex = signature.children.indexOfFirst { it is ContentText && it.text == "constructor" }

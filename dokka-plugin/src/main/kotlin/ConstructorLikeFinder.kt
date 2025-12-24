@@ -49,8 +49,9 @@ class ConstructorLikeFinder: DocumentableTransformer {
 	private val DFunction.isConstructorLike: Boolean
 		get() = this.extra[Annotations]
 			?.directAnnotations
+			?.values
 			?.asSequence()
-			?.flatMap { it.value }
+			?.flatten()
 			?.any { it.dri.packageName == "io.github.spacedvoid.constructorlike" && it.dri.classNames == "ConstructorLike" }
 			?: false
 
@@ -167,9 +168,9 @@ class ConstructorLikeFinder: DocumentableTransformer {
 			l.forEach {
 				if(it.used) return@forEach
 				this@reportUnused.warn(
-					"Annotation @ConstructorLike cannot be applied to ${it.constructor.asString()} because "
-					+ "the target class $dri cannot be found, is in a different module, is an annotation class, enum class, or object, "
-					+ "or the function is not in a companion object."
+					"Annotation @ConstructorLike cannot be applied to function ${it.constructor.asString()} because "
+					+ "the function is not in a companion object, "
+					+ "the target class $dri cannot be found, is in a different module, or is an annotation class, enum class, or object"
 				)
 			}
 		}
