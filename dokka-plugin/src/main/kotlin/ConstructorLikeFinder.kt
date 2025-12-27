@@ -135,8 +135,8 @@ class ConstructorLikeFinder: DocumentableTransformer {
 	): T = when(this) {
 		is DModule -> copy(packages = this.packages.map { it.recordPseudoConstructors(constructors) })
 		is DPackage -> copy(classlikes = this.classlikes.map { it.recordPseudoConstructors(constructors) })
-		is DClass -> copy(extra = this.extra + InjectedConstructors(extractConstructorsFrom(constructors)))
-		is DInterface -> copy(extra = this.extra + InjectedConstructors(extractConstructorsFrom(constructors)))
+		is DClass -> copy(extra = this.extra + PseudoConstructors(extractConstructorsFrom(constructors)))
+		is DInterface -> copy(extra = this.extra + PseudoConstructors(extractConstructorsFrom(constructors)))
 		else -> this
 	} as T
 

@@ -12,8 +12,8 @@ import org.jetbrains.dokka.model.DClasslike
 import org.jetbrains.dokka.model.DFunction
 import org.jetbrains.dokka.model.properties.ExtraProperty
 
-class InjectedConstructors(val constructors: List<DFunction>): ExtraProperty<DClasslike> {
-	object Key: ExtraProperty.Key<DClasslike, InjectedConstructors>
+class PseudoConstructors(val constructors: List<DFunction>): ExtraProperty<DClasslike> {
+	object Key: ExtraProperty.Key<DClasslike, PseudoConstructors>
 
-	override val key: ExtraProperty.Key<DClasslike, InjectedConstructors> = Key
+	override val key: ExtraProperty.Key<DClasslike, PseudoConstructors> = Key
 }

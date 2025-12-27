@@ -58,7 +58,7 @@ class ConstructorLikeInjector(private val context: DokkaContext): PageTransforme
 	private fun ClasslikePageNode.injectConstructors(builder: PageContentBuilder): ClasslikePageNode {
 		val constructors = this.documentables.flatMap {
 			@Suppress("UNCHECKED_CAST")
-			(it as? WithExtraProperties<DClasslike>)?.extra[InjectedConstructors.Key]?.constructors ?: listOf()
+			(it as? WithExtraProperties<DClasslike>)?.extra[PseudoConstructors.Key]?.constructors ?: listOf()
 		}
 		// Insert the pseudo-constructors to the constructors table, creating one if not present
 		return modified(content = (this.content as ContentGroup).replacing<ContentGroup>(1) {
