@@ -21,8 +21,12 @@ class ConstructorLikePlugin: DokkaPlugin() {
 	override fun pluginApiPreviewAcknowledgement(): PluginApiPreviewAcknowledgement = PluginApiPreviewAcknowledgement
 
 	@Suppress("unused")
-	val constructorLikeFinder: Extension<DocumentableTransformer, *, *> by extending { CoreExtensions.documentableTransformer with ConstructorLikeFinder() }
+	val constructorLikeFinder: Extension<DocumentableTransformer, *, *> by extending {
+		CoreExtensions.documentableTransformer with ConstructorLikeFinder()
+	}
 
 	@Suppress("unused")
-	val constructorLikeInjector: Extension<PageTransformer, *, *> by extending { CoreExtensions.pageTransformer providing ::ConstructorLikeInjector }
+	val constructorLikeInjector: Extension<PageTransformer, *, *> by extending {
+		CoreExtensions.pageTransformer providing ::ConstructorLikeInjector
+	}
 }
