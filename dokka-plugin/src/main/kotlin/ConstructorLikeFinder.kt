@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 spacedvoid
+ * Copyright 2025-2026 spacedvoid
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -14,10 +14,9 @@ import org.jetbrains.dokka.ExperimentalDokkaApi
 import org.jetbrains.dokka.links.DRI
 import org.jetbrains.dokka.links.DriOfUnit
 import org.jetbrains.dokka.links.parent
-import org.jetbrains.dokka.model.AdditionalModifiers
-import org.jetbrains.dokka.model.Annotations
 import org.jetbrains.dokka.model.DAnnotation
 import org.jetbrains.dokka.model.DClass
+import org.jetbrains.dokka.model.DClasslike
 import org.jetbrains.dokka.model.DEnum
 import org.jetbrains.dokka.model.DFunction
 import org.jetbrains.dokka.model.DInterface
@@ -25,141 +24,162 @@ import org.jetbrains.dokka.model.DModule
 import org.jetbrains.dokka.model.DObject
 import org.jetbrains.dokka.model.DPackage
 import org.jetbrains.dokka.model.Documentable
-import org.jetbrains.dokka.model.ExtraModifiers
 import org.jetbrains.dokka.model.GenericTypeConstructor
 import org.jetbrains.dokka.model.WithCompanion
-import org.jetbrains.dokka.model.withDescendants
+import org.jetbrains.dokka.model.WithScope
 import org.jetbrains.dokka.plugability.DokkaContext
 import org.jetbrains.dokka.transformers.documentation.DocumentableTransformer
 
 class ConstructorLikeFinder: DocumentableTransformer {
 	override fun invoke(original: DModule, context: DokkaContext): DModule {
-		val pseudoConstructors = original.withDescendants()
-			.filterIsInstance<DFunction>()
-			.fold(PseudoConstructorMap()) { map, it ->
-				if(!it.isConstructorLike) return@fold map
-				when(val estimation = it.estimateTargetClass()) {
-					is Estimation.Found -> map.add(estimation.targetClass, PseudoConstructor(it))
-					is Estimation.Invalid -> map.addInvalid(PseudoConstructor(it).also { it.usageResult = estimation.reason })
-				}
-				return@fold map
-			}
-		val recorded = original.recordPseudoConstructors(pseudoConstructors)
-		val invalidConstructors = pseudoConstructors.invalidConstructors()
-		invalidConstructors.forEach { context.logger.warn(it.usageResult.messageForLogging(it.constructor)) }
-		return recorded.copy(extra = recorded.extra + InvalidPseudoConstructors(invalidConstructors))
-	}
-
-	private class PseudoConstructorMap {
-		private val map = mutableMapOf<DRI, MutableList<PseudoConstructor>>()
-		private val invalids = mutableListOf<PseudoConstructor>()
-
-		fun add(dri: DRI, constructor: PseudoConstructor) {
-			this.map.getOrPut(dri) { mutableListOf() }.add(constructor)
-		}
-
-		fun addInvalid(constructor: PseudoConstructor) {
-			this.invalids += constructor
-		}
-
-		operator fun <T> get(classlike: T): List<PseudoConstructor> where T: Documentable, T: WithCompanion =
-			buildList {
-				getRaw(classlike).partition {
-					// See [estimateTargetClass] for the reason of this check.
-					(it.constructor.type as GenericTypeConstructor).dri == classlike.dri
-				}.let { (constructors, notMine) ->
-					addAll(constructors)
-					constructors.forEach { it.usageResult = FindUseResult.USED }
-					notMine.forEach { it.usageResult = FindUseResult.NOT_IN_COMPANION_OF_TARGET }
-				}
-				classlike.companion?.let { getRaw(it) }?.also { addAll(it) }?.forEach {
-					it.usageResult = FindUseResult.USED
-				}
-			}
-
-		fun getRaw(documentable: Documentable): List<PseudoConstructor> =
-			this.map[documentable.dri]?.filter { documentable.sourceSets.containsAll(it.constructor.sourceSets) } ?: listOf()
-
-		fun invalidConstructors(): List<PseudoConstructor> =
-			this.invalids + this.map.values.asSequence().flatten().filter { it.usageResult != FindUseResult.USED }
-	}
-
-	private val DFunction.isConstructorLike: Boolean
-		get() = this.extra[Annotations]
-			?.directAnnotations
-			?.values
-			?.asSequence()
-			?.flatten()
-			?.any { it.dri.packageName == "io.github.spacedvoid.constructorlike" && it.dri.classNames == "ConstructorLike" }
-			?: false
-
-	private sealed interface Estimation {
-		@JvmInline
-		value class Found(val targetClass: DRI): Estimation
-
-		@JvmInline
-		value class Invalid(val reason: FindUseResult): Estimation
-	}
-
-	private fun DFunction.estimateTargetClass(): Estimation = when {
-		this.name == "invoke" -> when {
-			!this.isOperator -> Estimation.Invalid(FindUseResult.NOT_OPERATOR)
-			this.receiver == null && this.dri.parent.classNames == null ->
-				Estimation.Invalid(FindUseResult.NOT_EXTENSION_NOR_IN_COMPANION)
-			this.receiver != null && this.dri.parent.classNames != null ->
-				Estimation.Invalid(FindUseResult.EXTENSION_IN_CLASSLIKE)
-			else -> run {
-				val receiver = this.receiver?.type
-				val parent = this.dri.parent
-				val returnType = this.type
-				return@run when {
-					returnType !is GenericTypeConstructor -> Estimation.Invalid(FindUseResult.TARGET_NOT_CLASS)
-					returnType.dri == DriOfUnit -> Estimation.Invalid(FindUseResult.TARGET_IS_UNIT)
-					returnType.dri == driOfNothing -> Estimation.Invalid(FindUseResult.TARGET_IS_NOTHING)
-					receiver != null && (receiver !is GenericTypeConstructor || receiver.dri.parent != returnType.dri) ->
-						Estimation.Invalid(FindUseResult.RECEIVER_NOT_COMPANION_OF_TARGET)
-					receiver == null && parent.parent != returnType.dri ->
-						Estimation.Invalid(FindUseResult.NOT_IN_COMPANION_OF_TARGET)
-					/*
-					 * We return the parent's dri because we cannot know whether the parent is really a companion object.
-					 * [recordPseudoConstructors] will handle this by checking the return type of the function:
-					 * if the parent is a non-companion classlike, the return type will differ from the classlike.
-					 */
-					parent.classNames != null -> Estimation.Found(parent)
-					else -> Estimation.Found(receiver?.dri ?: returnType.dri)
-				}
-			}
-		}
-		this.receiver != null -> Estimation.Invalid(FindUseResult.NOT_INVOKE_BUT_EXTENSION)
-		else -> this.type.let {
-			when {
-				it !is GenericTypeConstructor -> Estimation.Invalid(FindUseResult.TARGET_NOT_CLASS)
-				it.dri == DriOfUnit -> Estimation.Invalid(FindUseResult.TARGET_IS_UNIT)
-				it.dri == driOfNothing -> Estimation.Invalid(FindUseResult.TARGET_IS_NOTHING)
-				this.name != it.dri.classNames -> Estimation.Invalid(FindUseResult.NAME_NOT_TARGET)
-				else -> Estimation.Found(it.dri)
-			}
+		val map = PseudoConstructorMap()
+		return original.recordPseudoConstructors(map).also {
+			map.invalidConstructors().forEach { context.logger.warn(it.second.messageForLogging(it.first)) }
 		}
 	}
 
-	private val DFunction.isOperator: Boolean
-		get() = this.extra[AdditionalModifiers]?.content
-			?.any { ExtraModifiers.KotlinOnlyModifiers.Operator in it.value }
-			?: false
-
-	private val driOfNothing = DRI("kotlin", "Nothing")
-
+	/**
+	 * This implementation follows the procedure below:
+	 * 1. Enter the scope([T])
+	 * 2. Find pseudo-constructors in this scope(shallow)
+	 * 3. If this scope has a [companion][WithCompanion], find pseudo-constructors in the companion(shallow)
+	 * 4. Validate pseudo-constructors with the helper as this scope
+	 * 5. If this scope has a companion, validate pseudo-constructors with the helper as the companion
+	 * 6. Recurse into the child classlikes
+	 * 7. Add pseudo-constructors with the target as this scope
+	 *
+	 * This works because the helper(or its parent if it is a companion) only refers to its child classes when validating,
+	 * and the target type can only be created by functions in the parent or child scopes of itself.
+	 * When the target type finds its pseudo-constructors, all relevant functions would already have been validated.
+	 *
+	 * @param isCompanion Because companion objects are not standalone objects, it cannot be used as a helper like other classlikes.
+	 *                    Instead, its parent will resolve its companion with itself.
+	 */
 	@Suppress("UNCHECKED_CAST")
 	private fun <T: Documentable> T.recordPseudoConstructors(
-		constructors: PseudoConstructorMap
+		constructors: PseudoConstructorMap,
+		isCompanion: Boolean = false
 	): T = when(this) {
-		is DModule -> copy(packages = this.packages.map { it.recordPseudoConstructors(constructors) })
-		is DPackage -> copy(classlikes = this.classlikes.map { it.recordPseudoConstructors(constructors) })
-		is DClass -> copy(extra = this.extra + PseudoConstructors(constructors[this]))
-		is DInterface -> copy(extra = this.extra + PseudoConstructors(constructors[this]))
-		is DAnnotation -> this.also { constructors.getRaw(this).forEach { it.usageResult = FindUseResult.TARGET_IS_INVALID_CLASSLIKE } }
-		is DEnum -> this.also { constructors.getRaw(this).forEach { it.usageResult = FindUseResult.TARGET_IS_INVALID_CLASSLIKE } }
-		is DObject -> this.also { constructors.getRaw(this).forEach { it.usageResult = FindUseResult.TARGET_IS_INVALID_CLASSLIKE } }
+		is DModule -> copy(
+			packages = this.packages.map { it.recordPseudoConstructors(constructors) },
+			extra = this.extra + InvalidPseudoConstructors(constructors.invalidConstructors())
+		)
+		is DPackage -> copy(classlikes = processScope(constructors))
+		is DClass -> copy(
+			classlikes = processScope(constructors),
+			extra = this.extra + PseudoConstructors(constructors.getByTarget(this))
+		)
+		is DInterface -> copy(
+			classlikes = processScope(constructors),
+			extra = this.extra + PseudoConstructors(constructors.getByTarget(this))
+		)
+		is DAnnotation -> run {
+			constructors.getByTarget(this).forEach { it.validation = Validation.TARGET_IS_INVALID_CLASSLIKE }
+			return@run copy(classlikes = processScope(constructors))
+		}
+		is DEnum -> run {
+			constructors.getByTarget(this).forEach { it.validation = Validation.TARGET_IS_INVALID_CLASSLIKE }
+			return@run copy(classlikes = processScope(constructors))
+		}
+		is DObject -> run {
+			constructors.getByTarget(this).forEach { it.validation = Validation.TARGET_IS_INVALID_CLASSLIKE }
+			return@run copy(classlikes = processScope(constructors, isCompanion))
+		}
 		else -> this
 	} as T
+
+	private fun <T> T.processScope(constructors: PseudoConstructorMap, isCompanion: Boolean = false): List<DClasslike> where T: Documentable, T: WithScope {
+		this.functions.forEach {
+			if(!it.isConstructorLike) return@forEach
+			when(val estimation = Resolution.resolve(it)) {
+				is Resolution.Found -> constructors.add(PseudoConstructor(it, estimation.helper, estimation.target))
+				is Resolution.Invalid -> constructors.addInvalid(it, estimation.reason)
+			}
+		}
+		val classlikes = this.classlikes.partition { it.dri == (this as? WithCompanion)?.companion?.dri }
+		val companion = classlikes.first.singleOrNull()?.recordPseudoConstructors(constructors, isCompanion = true)
+		if(!isCompanion) constructors.validateWith(this)
+		val otherClassLikes = classlikes.second.map { it.recordPseudoConstructors(constructors) }
+		return listOfNotNull(companion) + otherClassLikes
+	}
+}
+
+private sealed interface Resolution {
+	class Found(val helper: DRI?, val target: DRI): Resolution
+
+	class Invalid(val reason: Validation): Resolution
+
+	companion object {
+		fun resolve(function: DFunction): Resolution {
+			val receiver = function.receiver?.type
+			val target = function.type
+			return when {
+				target !is GenericTypeConstructor -> Invalid(Validation.TARGET_NOT_CLASS)
+				target.dri == DriOfUnit -> Invalid(Validation.TARGET_IS_UNIT)
+				target.dri == driOfNothing -> Invalid(Validation.TARGET_IS_NOTHING)
+				receiver !is GenericTypeConstructor? -> Invalid(Validation.RECEIVER_NOT_CLASSLIKE)
+				function.name == "invoke" -> when {
+					!function.isOperator -> Invalid(Validation.NOT_OPERATOR)
+					function.receiver == null && function.dri.parent.classNames == null ->
+						Invalid(Validation.INVOKE_NEITHER_EXTENSION_NOR_IN_CLASSLIKE)
+					function.receiver != null && function.dri.parent.classNames != null ->
+						Invalid(Validation.EXTENSION_IN_CLASSLIKE)
+					else -> Found(receiver?.dri ?: function.dri.parent, target.dri)
+				}
+				function.name != target.dri.classNames?.substringAfterLast(".") -> Invalid(Validation.NAME_NOT_TARGET)
+				function.dri.parent.classNames == null && function.receiver == null && target.dri.parent.classNames != null ->
+					Invalid(Validation.TARGET_NOT_TOP_LEVEL)
+				function.dri.parent.classNames != null && function.receiver != null ->
+					Invalid(Validation.EXTENSION_IN_CLASSLIKE)
+				else -> Found(receiver?.dri ?: function.dri.parent.takeIf { it.classNames != null }, target.dri)
+			}
+		}
+	}
+}
+
+private class PseudoConstructorMap {
+	private val byHelper = mutableMapOf<DRI, MutableList<PseudoConstructor>>()
+	private val byTarget = mutableMapOf<DRI, MutableList<PseudoConstructor>>()
+	private val invalids = mutableListOf<Pair<DFunction, Validation>>()
+
+	fun add(constructor: PseudoConstructor) {
+		this.byHelper.getOrPut(constructor.helper ?: constructor.target) { mutableListOf() }.add(constructor)
+		this.byTarget.getOrPut(constructor.target) { mutableListOf() }.add(constructor)
+	}
+
+	fun addInvalid(function: DFunction, reason: Validation) {
+		this.invalids += function to reason
+	}
+
+	fun <T> validateWith(helper: T) where T: Documentable, T: WithScope {
+		val childClasslikesToIsInner = helper.classlikes.associate { it.dri to it.isInner }
+		val (topLevel, instanceHelper) = getByHelper(helper).partition { it.helper == null }
+		topLevel.forEach { it.validation = Validation.VALID }
+		instanceHelper.forEach {
+			val isInner = childClasslikesToIsInner[it.target]
+			it.validation = when {
+				it.constructor.name == "invoke" -> Validation.INVOKE_ON_CLASSLIKE
+				isInner == null || helper !is DObject && !isInner -> Validation.TARGET_NOT_INNER
+				else -> Validation.VALID
+			}
+		}
+		val companion = (helper as? WithCompanion)?.companion ?: return
+		getByHelper(companion).forEach {
+			it.validation = when {
+				it.constructor.name == "invoke" -> if(it.target == helper.dri) Validation.VALID else Validation.TARGET_NOT_PARENT_OF_COMPANION
+				it.target !in childClasslikesToIsInner -> Validation.TARGET_NOT_NESTED
+				childClasslikesToIsInner.getValue(it.target) -> Validation.TARGET_IS_INNER
+				else -> Validation.VALID
+			}
+		}
+	}
+
+	private fun getByHelper(helper: Documentable): List<PseudoConstructor> =
+		this.byHelper[helper.dri]?.filter { helper.sourceSets.containsAll(it.constructor.sourceSets) } ?: listOf()
+
+	fun getByTarget(target: Documentable): List<PseudoConstructor> =
+		this.byTarget[target.dri]?.filter { target.sourceSets.containsAll(it.constructor.sourceSets) && it.validation == Validation.VALID } ?: listOf()
+
+	fun invalidConstructors(): List<Pair<DFunction, Validation>> =
+		this.invalids + this.byHelper.values.asSequence().flatten().filter { it.validation != Validation.VALID }.map { it.constructor to it.validation }
 }
