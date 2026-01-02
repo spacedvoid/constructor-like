@@ -24,7 +24,7 @@ enum class Validation(private val message: String) {
 	TARGET_NOT_TOP_LEVEL("the target type is not package-level"),
 	// Used by `recordPseudoConstructors`
 	TARGET_IS_INVALID_CLASSLIKE("the target type is an annotation class, enum class, or object"),
-	// Used by `resolveWith` and `resolveCompanion`
+	// Used by `validateWith`
 	INVOKE_ON_CLASSLIKE("the function is in a class type or is an extension to one"),
 	TARGET_IS_INNER("the target type is an inner class"),
 	TARGET_NOT_INNER("the target type is not an inner class of the class type"),

@@ -33,9 +33,9 @@ class Logger(val name: String)
 inline fun <reified T> T.createLogger(): Logger = Logger(T::class.qualifiedName)
 ```
 
-This leeds us to using functions that look like constructors:
+This leads us to using functions that look like constructors:
 1. `operator fun invoke` functions in companion objects or an extension to one
-2. Top level functions with the same name([`fun Char()`](https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-char.html))
+2. Functions with the same name of the class ([`fun Char()`](https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-char.html))
 
 These are what we call pseudo-constructors, since they don't look different with normal constructors: `MyClass(<parameters>)`
 
