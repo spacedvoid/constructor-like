@@ -120,6 +120,19 @@ class FinderTest: BaseAbstractTest() {
 
 	//endregion
 
+	//region Object helper
+
+	@Test
+	fun `allow named on object`() {
+		testWithResource("NamedOnObject.kt") {
+			documentablesTransformationStage = {
+				allow(it, "NestedClass", "NamedOnObject", "NamedOnObject")
+			}
+		}
+	}
+
+	//endregion
+
 	//region Class instance helper
 
 	@Test

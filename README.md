@@ -58,23 +58,22 @@ Non-annotated elements will not be included.
 
 The *target type* of the annotated function is its return type.
 The target type must not be `kotlin.Unit`, `kotlin.Nothing`, an `annotation class`, `enum class`, or `object`,
-and must be in the same module so that the plugin can inject the constructor to the documentation.
-The annotated function must be placed in the same package as the target type.
+and must be in the same module and package with the function so that the plugin can inject the constructor to the documentation.
 
-Then, the function must also match one of the following:
-it must be an `operator fun invoke`, or its name must match the target type's name.
+Then, the function must also be either an `operator fun invoke`, or its name must match the target type's name.
 
 For ease of parsing, we define a *helper* for the function to act as a constructor.
-The helper is either the receiver of the function or the classlike owning the function;
-but it can have no helper in case it is a package-level non-extension non-`invoke` function.
+The helper is either the receiver of the function or the classlike owning the function.
+While the function can have no helper in case it is a package-level non-extension non-`invoke` function,
+it cannot have two helpers: the function cannot be an extension in a classlike.
 
-Finally, it is resolved based on the helper's kind:
-- If the helper is a companion object, the target type must be a parent of the companion if it is an `operator fun invoke`,
+Finally, it is validated based on the helper's kind:
+- Companion object: the target type must be a parent of the companion if the function is an `operator fun invoke`,
   otherwise the target type must be a nested class of the parent of the helper.
-- If the helper is a plain object, the function must not be an `operator fun invoke`,
-  the target type must be a nested(`inner` or non-`inner`) class of the helper's class,
-  and if the helper is not an object, the target type must also be an `inner` class.
-- If the function has no helper, the target type must be a package-level class.
+- Plain object: the function must not be an `operator fun invoke`,
+  and if the helper is not an `object`, the target type must be an `inner` class of the helper,
+  otherwise the target type must be a non-`inner` nested class of the helper.
+- No helper: the target type must be a package-level class.
 
 If the function violates anything from above, the plugin will raise a warning and will not include the function as a pseudo-constructor.
 
@@ -85,7 +84,13 @@ To be brief, function bodies are omitted.
 
 ```kotlin
 class MyClass { // Also applies to abstract classes and interfaces
+	class NestedClass
+
+	inner class InnerClass
+
 	companion object {
+		class NestedInObject // Also applies to nested classes in standalone objects
+		
 		// OK: used as `MyClass()`
 		@ConstructorLike
 		operator fun invoke(): MyClass
@@ -121,12 +126,12 @@ class MyClass { // Also applies to abstract classes and interfaces
 		// Bad: target type is `InnerClass`
 		@ConstructorLike
 		fun InnerClass(): InnerClass // You cannot create inner classes with a companion object in any way.
+		
+		// OK: used as `MyClass.Companion.NestedInObject()`
+		@ConstructorLike
+        fun NestedInObject(): NestedInObject
 	}
-	
-	class NestedClass
 
-	inner class InnerClass
-	
 	// Bad: target type is `NestedClass`
 	@ConstructorLike
 	fun NestedClass(): NestedClass // You cannot create nested classes with the outer class in any way, except using companion objects.
@@ -183,6 +188,10 @@ fun MyClass.InnerClass(): InnerClass
 // Bad: it is not an extension on `MyClass`
 @ConstructorLike
 fun MyClass.Companion.InnerClass(): InnerClass
+
+// OK: used as `MyClass.Companion.NestedInObject()`
+@ConstructorLike
+fun MyClass.Companion.NestedInObject(): NestedInObject
 ```
 
 </details>
