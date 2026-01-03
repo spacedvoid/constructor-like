@@ -69,16 +69,19 @@ class ConstructorLikeFinder: DocumentableTransformer {
 			extra = this.extra + PseudoConstructors(constructors.getByTarget(this))
 		)
 		is DAnnotation -> run {
+			val processed = processScope(constructors)
 			constructors.getByTarget(this).forEach { it.validation = Validation.TARGET_IS_INVALID_CLASSLIKE }
-			return@run copy(classlikes = processScope(constructors))
+			return@run copy(classlikes = processed)
 		}
 		is DEnum -> run {
+			val processed = processScope(constructors)
 			constructors.getByTarget(this).forEach { it.validation = Validation.TARGET_IS_INVALID_CLASSLIKE }
-			return@run copy(classlikes = processScope(constructors))
+			return@run copy(classlikes = processed)
 		}
 		is DObject -> run {
+			val processed = processScope(constructors, isCompanion)
 			constructors.getByTarget(this).forEach { it.validation = Validation.TARGET_IS_INVALID_CLASSLIKE }
-			return@run copy(classlikes = processScope(constructors, isCompanion))
+			return@run copy(classlikes = processed)
 		}
 		else -> this
 	} as T
