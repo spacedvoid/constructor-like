@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 spacedvoid
+ * Copyright 2025-2026 spacedvoid
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -58,7 +58,10 @@ class ConstructorLikeInjector(private val context: DokkaContext): PageTransforme
 	private fun ClasslikePageNode.injectConstructors(builder: PageContentBuilder): ClasslikePageNode {
 		val constructors = this.documentables.flatMap {
 			@Suppress("UNCHECKED_CAST")
-			(it as? WithExtraProperties<DClasslike>)?.extra[PseudoConstructors.Key]?.constructors?.map { it.constructor } ?: listOf()
+			(it as? WithExtraProperties<DClasslike>)?.extra[PseudoConstructors.Key]
+				?.constructors
+				?.map { it.constructor }
+				?: listOf()
 		}
 		// Insert the pseudo-constructors to the constructors table, creating one if not present
 		return modified(content = (this.content as ContentGroup).replacing<ContentGroup>(1) {
@@ -68,8 +71,8 @@ class ConstructorLikeInjector(private val context: DokkaContext): PageTransforme
 				it.replacing<ContentGroup>(0) {
 					it.replacing<ContentTable>(1) {
 						it.copy(
-							dci = it.dci.copy(dri = it.dci.dri + constructors.mapTo(mutableSetOf()) { it.dri }),
-							sourceSets = it.sourceSets + constructors.flatMapTo(mutableSetOf()) { it.sourceSets.toDisplaySourceSets() },
+							dci = it.dci.copy(dri = it.dci.dri + constructors.map { it.dri }),
+							sourceSets = it.sourceSets + constructors.flatMap { it.sourceSets.toDisplaySourceSets() },
 							children = it.children + constructors.map {
 								builder.contentFor(
 									it.dri,
@@ -95,31 +98,30 @@ class ConstructorLikeInjector(private val context: DokkaContext): PageTransforme
 			}
 		})
 	}
-
-	private inline fun <reified T: ContentNode> ContentGroup.replacing(index: Int, crossinline replacement: (T) -> ContentNode): ContentGroup =
-		copy(children = this.children.toMutableList().also { it[index] = replacement(it[index] as T) })
 }
+
+private inline fun <reified T: ContentNode> ContentGroup.replacing(index: Int, crossinline replacement: (T) -> ContentNode): ContentGroup =
+	copy(children = this.children.toMutableList().also { it[index] = replacement(it[index] as T) })
 
 internal fun PageContentBuilder.DocumentableContentBuilder.addSignature(documentable: Documentable) {
 	if(documentable !is DFunction || !documentable.isConstructor) throw AssertionError("Got non-constructor documentable $documentable")
 	var signatures = buildSignature(documentable)
 	val generics = documentable.generics
-	if(generics.isNotEmpty()) signatures = addGenericsToSignatures(signatures, generics)
+	if(generics.isNotEmpty()) signatures = signatures.map { addGenericsToSignature(it, generics) }
 	+signatures
 }
 
-private fun PageContentBuilder.DocumentableContentBuilder.addGenericsToSignatures(signatures: List<ContentNode>, generics: List<DTypeParameter>): List<ContentGroup> =
-	signatures.map { signature ->
-		// Position of where to put generics info can be rediscussed, it is currently right before the `constructor` keyword like functions
-		val constructorTextIndex = signature.children.indexOfFirst { it is ContentText && it.text == "constructor" }
-		return@map buildGroup(kind = ContentKind.Symbol, styles = setOf(TextStyle.Monospace)) {
-			repeat(constructorTextIndex) { +signature.children[it] }
-			text("<", styles = setOf(TextStyle.Monospace, TokenStyle.Operator))
-			generics.forEachIndexed { index, it ->
-				+buildSignature(it)
-				if(index < generics.size - 1) text(", ", styles = setOf(TextStyle.Monospace, TokenStyle.Punctuation))
-			}
-			text("> ", styles = setOf(TextStyle.Monospace, TokenStyle.Operator))
-			for(i in constructorTextIndex..<signature.children.size) +signature.children[i]
-		}
+private fun PageContentBuilder.DocumentableContentBuilder.addGenericsToSignature(
+	signature: ContentNode,
+	generics: List<DTypeParameter>
+): ContentGroup = buildGroup(kind = ContentKind.Symbol, styles = setOf(TextStyle.Monospace)) {
+	val constructorTextIndex = signature.children.indexOfFirst { it is ContentText && it.text == "constructor" }
+	repeat(constructorTextIndex) { +signature.children[it] }
+	text("<", styles = setOf(TextStyle.Monospace, TokenStyle.Operator))
+	generics.forEachIndexed { index, it ->
+		+buildSignature(it)
+		if(index < generics.size - 1) text(", ", styles = setOf(TextStyle.Monospace, TokenStyle.Punctuation))
 	}
+	text("> ", styles = setOf(TextStyle.Monospace, TokenStyle.Operator))
+	for(i in constructorTextIndex..<signature.children.size) +signature.children[i]
+}

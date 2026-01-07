@@ -10,7 +10,9 @@ Java introduced [flexible constructor bodies](https://openjdk.org/jeps/513) for 
 but Kotlin cannot have such feature because we're stuck at this C-style constructor syntax:
 
 ```kotlin
-constructor(s: String): this(s.toInt())
+class MyClass(val i: Int) { 
+	constructor(s: String): this(s.toInt()) // Might cause `IllegalArgumentException`, but cannot catch it
+}
 ```
 
 Or we might have an interface that can be instantiated by everyone, but giving a helper function would be great:
@@ -33,11 +35,11 @@ class Logger(val name: String)
 inline fun <reified T> T.createLogger(): Logger = Logger(T::class.qualifiedName)
 ```
 
-This leads us to using functions that look like constructors:
+This leads us to using functions that *look like* constructors:
 1. `operator fun invoke` functions in companion objects or an extension to one
 2. Functions with the same name of the class ([`fun Char()`](https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-char.html))
 
-These are what we call pseudo-constructors, since they don't look different with normal constructors: `MyClass(<parameters>)`
+These are what we call *pseudo-constructors*, since they don't look different with normal constructors: `MyClass(<parameters>)`
 
 Unfortunately, these are not directly shown in the class documentation, since they are technically not constructors.
 Users cannot notice such functions if they are not explicitly documented at each class,
@@ -54,25 +56,25 @@ and the function's name is displayed at the first column of the `Constructor` ta
 ### Specification details
 
 To make a function as a pseudo-constructor, it must be annotated with `@ConstructorLike`.
-Non-annotated elements will not be included.
+Other functions will not be included.
 
 The *target type* of the annotated function is its return type.
 The target type must not be `kotlin.Unit`, `kotlin.Nothing`, an `annotation class`, `enum class`, or `object`,
 and must be in the same module and package with the function so that the plugin can inject the constructor to the documentation.
 
-Then, the function must also be either an `operator fun invoke`, or its name must match the target type's name.
+Then, the function must be an `operator fun invoke` or its name must match the target type's simple name.
 
-For ease of parsing, we define a *helper* for the function to act as a constructor.
-The helper is either the receiver of the function or the classlike owning the function.
-While the function can have no helper in case it is a package-level non-extension non-`invoke` function,
+For ease of parsing, we define a *helper* for the function to act as a constructor:
+it is either the receiver of the function or the classlike owning the function.
+While a function can have no helper in case it is a package-level non-extension non-`operator fun invoke` function,
 it cannot have two helpers: the function cannot be an extension in a classlike.
 
 Finally, it is validated based on the helper's kind:
-- Companion object: the target type must be a parent of the companion if the function is an `operator fun invoke`,
+- `companion object`: the target type must be the parent of the companion if the function is an `operator fun invoke`,
   otherwise the target type must be a nested class of the parent of the helper.
-- Plain object: the function must not be an `operator fun invoke`,
-  and if the helper is not an `object`, the target type must be an `inner` class of the helper,
-  otherwise the target type must be a non-`inner` nested class of the helper.
+- Plain classlikes: the function must not be an `operator fun invoke`,
+  the target type must be a nested class of the helper,
+  and if the helper is not an `object`, the target type must also be `inner`.
 - No helper: the target type must be a package-level class.
 
 If the function violates anything from above, the plugin will raise a warning and will not include the function as a pseudo-constructor.
@@ -97,7 +99,8 @@ class MyClass { // Also applies to abstract classes and interfaces
 
 		// Bad: it is not marked `operator`
 		@ConstructorLike
-		fun invoke(): MyClass // Will not be presented afterward, but applies on all cases.
+		fun invoke(): MyClass
+		// Will not be presented afterward, but applies on all cases.
 
 		// Bad: it is an extension
 		@ConstructorLike
@@ -105,7 +108,8 @@ class MyClass { // Also applies to abstract classes and interfaces
 
 		// Bad: it does not return `MyClass`
 		@ConstructorLike
-		operator fun invoke(): Any // In practice, this will cause a 'target in different module' warning. 
+		operator fun invoke(): Any
+		// In practice, this will cause a 'target in different module' warning. 
 
 		// OK: used as `MyClass.NestedClass()`
 		@ConstructorLike
@@ -114,18 +118,22 @@ class MyClass { // Also applies to abstract classes and interfaces
 		// Bad: it is an extension
 		@ConstructorLike
 		fun Any.NestedClass(): NestedClass
+		// Will not be presented afterward, the function can either be an extension or be in a classlike, but not both.
 
 		// Bad: it is not named `NestedClass`
 		@ConstructorLike
-		fun createNested(): NestedClass // Will not be presented afterward, but if the function is not an `operator fun invoke`, its name must match its target type.
+		fun createNested(): NestedClass
+		// Will not be presented afterward, but if the function is not an `operator fun invoke`, its name must match its target type.
 
 		// Bad: it does not return `NestedClass`
 		@ConstructorLike
-		fun NestedClass(): Any // Will not be presented afterward, same reason as above.
+		fun NestedClass(): Any
+		// Will not be presented afterward, same reason as above.
 
 		// Bad: target type is `InnerClass`
 		@ConstructorLike
-		fun InnerClass(): InnerClass // You cannot create inner classes with a companion object in any way.
+		fun InnerClass(): InnerClass
+		// You cannot create inner classes with a companion object in any way.
 		
 		// OK: used as `MyClass.Companion.NestedInObject()`
 		@ConstructorLike
@@ -134,15 +142,12 @@ class MyClass { // Also applies to abstract classes and interfaces
 
 	// Bad: target type is `NestedClass`
 	@ConstructorLike
-	fun NestedClass(): NestedClass // You cannot create nested classes with the outer class in any way, except using companion objects.
+	fun NestedClass(): NestedClass
+	// You cannot create nested classes with the outer class in any way, except using companion objects.
 
 	// OK: used as `myClassInstance.InnerClass()`
 	@ConstructorLike
 	fun InnerClass(): InnerClass
-
-	// Bad: it is an extension
-	@ConstructorLike
-	fun Any.InnerClass(): InnerClass
 
 	// Bad: it does not return `InnerClass`
 	@ConstructorLike

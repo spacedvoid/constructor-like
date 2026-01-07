@@ -33,36 +33,38 @@ import org.jetbrains.dokka.pages.TabbedContentTypeExtra
  *
  * Modified to include generics info to the signature([addSignature], original: [buildSignature]).
  */
-internal fun PageContentBuilder.contentForConstructors(documentables: List<Documentable>, constructors: List<DFunction>): ContentGroup =
-	contentFor(
-		documentables.mapTo(mutableSetOf()) { it.dri },
-		documentables.flatMapTo(mutableSetOf()) { it.sourceSets }
-	) {
-		multiBlock(
-			"Constructors",
-			2,
-			ContentKind.Constructors,
-			constructors.groupBy { it.name }.map { it.toPair() },
-			constructors.flatMapTo(mutableSetOf()) { it.sourceSets },
-			extra = PropertyContainer.withAll(TabbedContentTypeExtra(BasicTabbedContentType.CONSTRUCTOR)),
-			needsSorting = false,
-			needsAnchors = true
-		) { key, ds ->
-			link(key, ds.first().dri, ContentKind.Main, styles = setOf(ContentStyle.RowTitle))
-			sourceSetDependentHint(
-				ds.mapTo(mutableSetOf()) { it.dri },
-				ds.flatMapTo(mutableSetOf()) { it.sourceSets },
-				ContentKind.SourceSetDependentHint,
-				emptySet(),
-				PropertyContainer.empty()
-			) {
-				ds.forEach {
-					addSignature(it)
-					contentForBrief(it)
-				}
+internal fun PageContentBuilder.contentForConstructors(
+	documentables: List<Documentable>,
+	constructors: List<DFunction>
+): ContentGroup = contentFor(
+	documentables.mapTo(mutableSetOf()) { it.dri },
+	documentables.flatMapTo(mutableSetOf()) { it.sourceSets }
+) {
+	multiBlock(
+		"Constructors",
+		2,
+		ContentKind.Constructors,
+		constructors.groupBy { it.name }.map { it.toPair() },
+		constructors.flatMapTo(mutableSetOf()) { it.sourceSets },
+		extra = PropertyContainer.withAll(TabbedContentTypeExtra(BasicTabbedContentType.CONSTRUCTOR)),
+		needsSorting = false,
+		needsAnchors = true
+	) { key, ds ->
+		link(key, ds.first().dri, ContentKind.Main, styles = setOf(ContentStyle.RowTitle))
+		sourceSetDependentHint(
+			ds.mapTo(mutableSetOf()) { it.dri },
+			ds.flatMapTo(mutableSetOf()) { it.sourceSets },
+			ContentKind.SourceSetDependentHint,
+			emptySet(),
+			PropertyContainer.empty()
+		) {
+			ds.forEach {
+				addSignature(it)
+				contentForBrief(it)
 			}
 		}
 	}
+}
 
 /*
  * Copied and modified from [org.jetbrains.dokka.base.translators.documentables.DefaultPageCreator.contentForBrief]

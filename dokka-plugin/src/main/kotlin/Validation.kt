@@ -12,7 +12,7 @@ import org.jetbrains.dokka.model.DFunction
 
 enum class Validation(private val message: String) {
 	VALID(""),
-	// Used by `resolve`
+	// Used by [ConstructorLikeFinder.resolve]
 	TARGET_NOT_CLASS("the function does not return a class type"),
 	TARGET_IS_UNIT("the function returns 'kotlin.Unit'"),
 	TARGET_IS_NOTHING("the function returns 'kotlin.Nothing'"),
@@ -22,9 +22,9 @@ enum class Validation(private val message: String) {
 	INVOKE_NEITHER_EXTENSION_NOR_IN_CLASSLIKE("the function is not an extension of a companion object or is not in a class type"),
 	NAME_NOT_TARGET("the name of the function does not match the return type"),
 	TARGET_NOT_TOP_LEVEL("the target type is not package-level"),
-	// Used by `recordPseudoConstructors`
+	// Used by [ConstructorLikeFinder.recordPseudoConstructors]
 	TARGET_IS_INVALID_CLASSLIKE("the target type is an annotation class, enum class, or object"),
-	// Used by `validateWith`
+	// Used by [PseudoConstructorMap.validateWith]
 	INVOKE_ON_CLASSLIKE("the function is in a class type or is an extension to one"),
 	TARGET_IS_INNER("the target type is an inner class"),
 	TARGET_NOT_INNER("the target type is not an inner class of the class type"),

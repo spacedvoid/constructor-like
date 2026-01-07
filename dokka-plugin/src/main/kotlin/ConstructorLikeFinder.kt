@@ -41,18 +41,12 @@ class ConstructorLikeFinder: DocumentableTransformer {
 	}
 
 	/**
-	 * This implementation follows the procedure below:
-	 * 1. Enter the scope([processScope])
-	 * 2. Find pseudo-constructors in this scope(shallow)
-	 * 3. If this scope has a [companion][WithCompanion], find pseudo-constructors in the companion(shallow)
-	 * 4. Validate pseudo-constructors with the helper as this scope
-	 * 5. If this scope has a companion, validate pseudo-constructors with the helper as the companion
-	 * 6. Recurse into the child classlikes
-	 * 7. Add pseudo-constructors with the target as this scope
+	 * An in-order DFS that shallowly collects the functions in the scope and verifies the cumulated functions,
+	 * then recurse into the child scopes, and finishes by recording valid pseudo-constructors.
 	 *
-	 * This works because a helper(or its parent if it is a companion) only refers to its child classes when validating,
+	 * This works because a helper(or its parent if it's a companion) only refers to its direct child classes when validating,
 	 * and the target type can only be created by functions in the parent or child scopes of itself.
-	 * When the target type finds its pseudo-constructors, all relevant functions would already have been validated.
+	 * When the target type looks for its pseudo-constructors, all relevant functions would already have been validated.
 	 *
 	 * @param isCompanion Because companion objects are not standalone objects, it cannot be used as a helper like other classlikes.
 	 *                    Instead, its parent will resolve its companion with itself.
@@ -75,25 +69,22 @@ class ConstructorLikeFinder: DocumentableTransformer {
 			classlikes = processScope(constructors),
 			extra = this.extra + PseudoConstructors(constructors.getByTarget(this))
 		)
-		is DAnnotation -> run {
-			val processed = processScope(constructors)
+		is DAnnotation -> copy(classlikes = processScope(constructors)).also {
 			constructors.getByTarget(this).forEach { it.validation = Validation.TARGET_IS_INVALID_CLASSLIKE }
-			return@run copy(classlikes = processed)
 		}
-		is DEnum -> run {
-			val processed = processScope(constructors)
+		is DEnum -> copy(classlikes = processScope(constructors)).also {
 			constructors.getByTarget(this).forEach { it.validation = Validation.TARGET_IS_INVALID_CLASSLIKE }
-			return@run copy(classlikes = processed)
 		}
-		is DObject -> run {
-			val processed = processScope(constructors, isCompanion)
+		is DObject -> copy(classlikes = processScope(constructors, isCompanion)).also {
 			constructors.getByTarget(this).forEach { it.validation = Validation.TARGET_IS_INVALID_CLASSLIKE }
-			return@run copy(classlikes = processed)
 		}
 		else -> this
 	} as T
 
-	private fun <T> T.processScope(constructors: PseudoConstructorMap, isCompanion: Boolean = false): List<DClasslike> where T: Documentable, T: WithScope {
+	private fun <T> T.processScope(
+		constructors: PseudoConstructorMap,
+		isCompanion: Boolean = false
+	): List<DClasslike> where T: Documentable, T: WithScope {
 		this.functions.forEach {
 			if(!it.isConstructorLike) return@forEach
 			when(val estimation = resolve(it)) {
@@ -101,13 +92,25 @@ class ConstructorLikeFinder: DocumentableTransformer {
 				is Invalid -> constructors.addInvalid(it, estimation.reason)
 			}
 		}
-		val classlikes = this.classlikes.partition { it.dri == (this as? WithCompanion)?.companion?.dri }
-		val companion = classlikes.first.singleOrNull()?.recordPseudoConstructors(constructors, isCompanion = true)
+		/*
+		 * We can't trust [WithCompanion.companion] since Dokka itself transforms a documentable
+		 * by only mapping its [WithScope.classlikes] and ignoring the `companion` property,
+		 * which causes the `companion` instances to be different objects.
+		 * And we need to separate the companion from other classlikes anyway.
+		 */
+		val companionDri = (this as? WithCompanion)?.companion?.dri
+		val (companion, classlikes) = this.classlikes.partition { it.dri == companionDri }
+		val newCompanion = companion.singleOrNull()?.recordPseudoConstructors(constructors, isCompanion = true)
 		if(!isCompanion) constructors.validateWith(this)
-		val otherClassLikes = classlikes.second.map { it.recordPseudoConstructors(constructors) }
-		return listOfNotNull(companion) + otherClassLikes
+		val otherClassLikes = classlikes.map { it.recordPseudoConstructors(constructors) }
+		return listOfNotNull(newCompanion) + otherClassLikes
 	}
 
+	/**
+	 * Also performs basic validations that only uses the function;
+	 * for example, whether the target type is a top-level class can be inferred by its [DRI]
+	 * without needing to look for the class definition.
+	 */
 	private fun resolve(function: DFunction): Resolution {
 		val receiver = function.receiver?.type
 		val target = function.type
@@ -141,14 +144,15 @@ class ConstructorLikeFinder: DocumentableTransformer {
 			val isInner = childClasslikesToIsInner[it.target]
 			it.validation = when {
 				it.constructor.name == "invoke" -> Validation.INVOKE_ON_CLASSLIKE
-				isInner == null || helper !is DObject && !isInner -> Validation.TARGET_NOT_INNER
+				isInner == null || (helper !is DObject && !isInner) -> Validation.TARGET_NOT_INNER
 				else -> Validation.VALID
 			}
 		}
 		val companion = (helper as? WithCompanion)?.companion ?: return
 		getByHelper(companion).forEach {
 			it.validation = when {
-				it.constructor.name == "invoke" -> if(it.target == helper.dri) Validation.VALID else Validation.TARGET_NOT_PARENT_OF_COMPANION
+				it.constructor.name == "invoke" ->
+					if(it.target == helper.dri) Validation.VALID else Validation.TARGET_NOT_PARENT_OF_COMPANION
 				it.target !in childClasslikesToIsInner -> Validation.TARGET_NOT_NESTED
 				childClasslikesToIsInner.getValue(it.target) -> Validation.TARGET_IS_INNER
 				else -> Validation.VALID
@@ -177,12 +181,23 @@ private class PseudoConstructorMap {
 		this.invalids += function to reason
 	}
 
+	/**
+	 * Includes functions that have a `null` [helper][PseudoConstructor.helper],
+	 * which uses its [target][PseudoConstructor.target] as the helper instead.
+	 */
 	fun getByHelper(helper: Documentable): List<PseudoConstructor> =
 		this.byHelper[helper.dri]?.filter { helper.sourceSets.containsAll(it.constructor.sourceSets) } ?: listOf()
 
 	fun getByTarget(target: Documentable): List<PseudoConstructor> =
-		this.byTarget[target.dri]?.filter { target.sourceSets.containsAll(it.constructor.sourceSets) && it.validation == Validation.VALID } ?: listOf()
+		this.byTarget[target.dri]
+			?.filter { target.sourceSets.containsAll(it.constructor.sourceSets) && it.validation == Validation.VALID }
+			?: listOf()
 
 	fun invalidConstructors(): List<Pair<DFunction, Validation>> =
-		this.invalids + this.byHelper.values.asSequence().flatten().filter { it.validation != Validation.VALID }.map { it.constructor to it.validation }
+		this.invalids.plus(
+			this.byHelper.values.asSequence()
+			.flatten()
+			.filter { it.validation != Validation.VALID }
+			.map { it.constructor to it.validation }
+		)
 }
