@@ -10,16 +10,23 @@
 
 package io.github.spacedvoid.constructorlike.dokkaplugin
 
+import io.github.spacedvoid.constructorlike.dokkaplugin.Resolution.Found
+import io.github.spacedvoid.constructorlike.dokkaplugin.Resolution.Invalid
 import org.jetbrains.dokka.ExperimentalDokkaApi
+import org.jetbrains.dokka.links.DRI
+import org.jetbrains.dokka.links.DriOfUnit
+import org.jetbrains.dokka.links.parent
 import org.jetbrains.dokka.model.DAnnotation
 import org.jetbrains.dokka.model.DClass
 import org.jetbrains.dokka.model.DClasslike
 import org.jetbrains.dokka.model.DEnum
+import org.jetbrains.dokka.model.DFunction
 import org.jetbrains.dokka.model.DInterface
 import org.jetbrains.dokka.model.DModule
 import org.jetbrains.dokka.model.DObject
 import org.jetbrains.dokka.model.DPackage
 import org.jetbrains.dokka.model.Documentable
+import org.jetbrains.dokka.model.GenericTypeConstructor
 import org.jetbrains.dokka.model.WithCompanion
 import org.jetbrains.dokka.model.WithScope
 import org.jetbrains.dokka.plugability.DokkaContext
@@ -89,9 +96,9 @@ class ConstructorLikeFinder: DocumentableTransformer {
 	private fun <T> T.processScope(constructors: PseudoConstructorMap, isCompanion: Boolean = false): List<DClasslike> where T: Documentable, T: WithScope {
 		this.functions.forEach {
 			if(!it.isConstructorLike) return@forEach
-			when(val estimation = Resolution.resolve(it)) {
-				is Resolution.Found -> constructors.add(PseudoConstructor(it, estimation.helper, estimation.target))
-				is Resolution.Invalid -> constructors.addInvalid(it, estimation.reason)
+			when(val estimation = resolve(it)) {
+				is Found -> constructors.add(PseudoConstructor(it, estimation.helper, estimation.target))
+				is Invalid -> constructors.addInvalid(it, estimation.reason)
 			}
 		}
 		val classlikes = this.classlikes.partition { it.dri == (this as? WithCompanion)?.companion?.dri }
@@ -99,6 +106,31 @@ class ConstructorLikeFinder: DocumentableTransformer {
 		if(!isCompanion) constructors.validateWith(this)
 		val otherClassLikes = classlikes.second.map { it.recordPseudoConstructors(constructors) }
 		return listOfNotNull(companion) + otherClassLikes
+	}
+
+	private fun resolve(function: DFunction): Resolution {
+		val receiver = function.receiver?.type
+		val target = function.type
+		return when {
+			target !is GenericTypeConstructor -> Invalid(Validation.TARGET_NOT_CLASS)
+			target.dri == DriOfUnit -> Invalid(Validation.TARGET_IS_UNIT)
+			target.dri == driOfNothing -> Invalid(Validation.TARGET_IS_NOTHING)
+			receiver !is GenericTypeConstructor? -> Invalid(Validation.RECEIVER_NOT_CLASSLIKE)
+			function.name == "invoke" -> when {
+				!function.isOperator -> Invalid(Validation.NOT_OPERATOR)
+				function.receiver == null && function.dri.parent.classNames == null ->
+					Invalid(Validation.INVOKE_NEITHER_EXTENSION_NOR_IN_CLASSLIKE)
+				function.receiver != null && function.dri.parent.classNames != null ->
+					Invalid(Validation.EXTENSION_IN_CLASSLIKE)
+				else -> Found(receiver?.dri ?: function.dri.parent, target.dri)
+			}
+			function.name != target.dri.classNames?.substringAfterLast(".") -> Invalid(Validation.NAME_NOT_TARGET)
+			function.dri.parent.classNames == null && function.receiver == null && target.dri.parent.classNames != null ->
+				Invalid(Validation.TARGET_NOT_TOP_LEVEL)
+			function.dri.parent.classNames != null && function.receiver != null ->
+				Invalid(Validation.EXTENSION_IN_CLASSLIKE)
+			else -> Found(receiver?.dri ?: function.dri.parent.takeIf { it.classNames != null }, target.dri)
+		}
 	}
 
 	private fun <T> PseudoConstructorMap.validateWith(helper: T) where T: Documentable, T: WithScope {
@@ -123,4 +155,34 @@ class ConstructorLikeFinder: DocumentableTransformer {
 			}
 		}
 	}
+}
+
+private sealed interface Resolution {
+	class Found(val helper: DRI?, val target: DRI): Resolution
+
+	class Invalid(val reason: Validation): Resolution
+}
+
+private class PseudoConstructorMap {
+	private val byHelper = mutableMapOf<DRI, MutableList<PseudoConstructor>>()
+	private val byTarget = mutableMapOf<DRI, MutableList<PseudoConstructor>>()
+	private val invalids = mutableListOf<Pair<DFunction, Validation>>()
+
+	fun add(constructor: PseudoConstructor) {
+		this.byHelper.getOrPut(constructor.helper ?: constructor.target) { mutableListOf() }.add(constructor)
+		this.byTarget.getOrPut(constructor.target) { mutableListOf() }.add(constructor)
+	}
+
+	fun addInvalid(function: DFunction, reason: Validation) {
+		this.invalids += function to reason
+	}
+
+	fun getByHelper(helper: Documentable): List<PseudoConstructor> =
+		this.byHelper[helper.dri]?.filter { helper.sourceSets.containsAll(it.constructor.sourceSets) } ?: listOf()
+
+	fun getByTarget(target: Documentable): List<PseudoConstructor> =
+		this.byTarget[target.dri]?.filter { target.sourceSets.containsAll(it.constructor.sourceSets) && it.validation == Validation.VALID } ?: listOf()
+
+	fun invalidConstructors(): List<Pair<DFunction, Validation>> =
+		this.invalids + this.byHelper.values.asSequence().flatten().filter { it.validation != Validation.VALID }.map { it.constructor to it.validation }
 }
