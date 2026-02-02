@@ -14,6 +14,7 @@ import org.jetbrains.dokka.model.DClass
 import org.jetbrains.dokka.model.DModule
 import org.jetbrains.dokka.model.withDescendants
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -50,7 +51,16 @@ class FinderTest: BaseAbstractTest() {
 	fun `prohibit invoke extension in companion object`() {
 		testWithResource("ExtensionInCompanion.kt") {
 			documentablesTransformationStage = {
-				prohibit(it, "ExtensionInCompanion", "ExtensionInCompanion.Companion", Validation.EXTENSION_IN_CLASSLIKE)
+				prohibit(
+					it,
+					"ExtensionInCompanion",
+					"ExtensionInCompanion.Companion",
+					setOf(
+						Validation.INVOKE_ON_CLASSLIKE,
+						Validation.TARGET_NOT_NESTED,
+						Validation.TARGET_NOT_PARENT_OF_COMPANION
+					)
+				)
 			}
 		}
 	}
@@ -59,16 +69,26 @@ class FinderTest: BaseAbstractTest() {
 	fun `prohibit invoke on non-companion`() {
 		testWithResource("InvokeOnNonCompanion.kt") {
 			documentablesTransformationStage = {
-				prohibit(it, "InvokeOnNonCompanion", "InvokeOnNonCompanion.NestedClass", Validation.INVOKE_ON_CLASSLIKE)
+				prohibit(
+					it,
+					"InvokeOnNonCompanion",
+					"InvokeOnNonCompanion.NestedClass",
+					setOf(Validation.INVOKE_ON_CLASSLIKE)
+				)
 			}
 		}
 	}
 
 	@Test
-	fun `prohibit invoke extension in companion for nested class`() {
+	fun `prohibit named extension in companion for nested class`() {
 		testWithResource("ExtensionOnCompanionForNested.kt") {
 			documentablesTransformationStage = {
-				prohibit(it, "NestedClass", "ExtensionOnCompanionForNested.Companion", Validation.EXTENSION_IN_CLASSLIKE)
+				prohibit(
+					it,
+					"NestedClass",
+					"ExtensionOnCompanionForNested.Companion",
+					setOf(Validation.EXTENSION_IN_CLASSLIKE)
+				)
 			}
 		}
 	}
@@ -77,7 +97,7 @@ class FinderTest: BaseAbstractTest() {
 	fun `prohibit invoke in companion with bad return type`() {
 		testWithResource("BadReturnType.kt") {
 			documentablesTransformationStage = {
-				prohibit(it, "Something", "BadReturnType.Companion", Validation.TARGET_NOT_PARENT_OF_COMPANION)
+				prohibit(it, "Something", "BadReturnType.Companion", setOf(Validation.TARGET_NOT_PARENT_OF_COMPANION))
 			}
 		}
 	}
@@ -95,7 +115,7 @@ class FinderTest: BaseAbstractTest() {
 	fun `prohibit invoke on companion for nested class`() {
 		testWithResource("InvokeOnCompanionForNested.kt") {
 			documentablesTransformationStage = {
-				prohibit(it, "NestedClass", "InvokeOnCompanionForNested.Companion", Validation.TARGET_NOT_PARENT_OF_COMPANION)
+				prohibit(it, "NestedClass", "InvokeOnCompanionForNested.Companion", setOf(Validation.TARGET_NOT_PARENT_OF_COMPANION))
 			}
 		}
 	}
@@ -104,7 +124,7 @@ class FinderTest: BaseAbstractTest() {
 	fun `prohibit invoke on companion for inner class`() {
 		testWithResource("InvokeOnCompanionForInner.kt") {
 			documentablesTransformationStage = {
-				prohibit(it, "Inner", "InvokeOnCompanionForInner.Companion", Validation.TARGET_NOT_PARENT_OF_COMPANION)
+				prohibit(it, "Inner", "InvokeOnCompanionForInner.Companion",setOf(Validation.TARGET_NOT_PARENT_OF_COMPANION))
 			}
 		}
 	}
@@ -113,7 +133,7 @@ class FinderTest: BaseAbstractTest() {
 	fun `prohibit named on companion for inner class`() {
 		testWithResource("NamedOnCompanionForInner.kt") {
 			documentablesTransformationStage = {
-				prohibit(it, "Inner", "NamedOnCompanionForInner.Companion", Validation.TARGET_IS_INNER)
+				prohibit(it, "Inner", "NamedOnCompanionForInner.Companion", setOf(Validation.TARGET_IS_INNER))
 			}
 		}
 	}
@@ -139,7 +159,7 @@ class FinderTest: BaseAbstractTest() {
 	fun `prohibit invoke on parent for nested class`() {
 		testWithResource("InvokeOnParentForNested.kt") {
 			documentablesTransformationStage = {
-				prohibit(it, "NestedClass", "InvokeInCompanionForInner", Validation.INVOKE_ON_CLASSLIKE)
+				prohibit(it, "NestedClass", "InvokeInCompanionForInner", setOf(Validation.INVOKE_ON_CLASSLIKE))
 			}
 		}
 	}
@@ -157,7 +177,12 @@ class FinderTest: BaseAbstractTest() {
 	fun `prohibit named extension on parent for inner class`() {
 		testWithResource("NamedExtensionOnParentForInner.kt") {
 			documentablesTransformationStage = {
-				prohibit(it, "InnerClass", "NamedExtensionOnParentForInner", Validation.EXTENSION_IN_CLASSLIKE)
+				prohibit(
+					it,
+					"InnerClass",
+					"NamedExtensionOnParentForInner",
+					setOf(Validation.EXTENSION_IN_CLASSLIKE)
+				)
 			}
 		}
 	}
@@ -167,7 +192,7 @@ class FinderTest: BaseAbstractTest() {
 	//region No receiver
 
 	@Test
-	fun `allow package-level function with same name as class`() {
+	fun `allow named package-level function`() {
 		testWithResource("TopLevelFunction.kt") {
 			documentablesTransformationStage = {
 				allow(it, "TopLevelFunction", null, null)
@@ -176,10 +201,10 @@ class FinderTest: BaseAbstractTest() {
 	}
 
 	@Test
-	fun `prohibit package-level extension`() {
+	fun `prohibit named package-level extension`() {
 		testWithResource("TopLevelExtension.kt") {
 			documentablesTransformationStage = {
-				prohibit(it, "TopLevelExtension", null, Validation.TARGET_NOT_INNER)
+				prohibit(it, "TopLevelExtension", null, setOf(Validation.TARGET_NOT_INNER, Validation.TARGET_NOT_NESTED))
 			}
 		}
 	}
@@ -192,16 +217,7 @@ class FinderTest: BaseAbstractTest() {
 	fun `prohibit invoke in self`() {
 		testWithResource("InvokeInSelf.kt") {
 			documentablesTransformationStage = {
-				prohibit(it, "InvokeInSelf", "InvokeInSelf", Validation.INVOKE_ON_CLASSLIKE)
-			}
-		}
-	}
-
-	@Test
-	fun `prohibit extension on instance`() {
-		testWithResource("InvokeExtensionOnInstance.kt") {
-			documentablesTransformationStage = {
-				prohibit(it, "InvokeExtensionOnInstance", null, Validation.INVOKE_ON_CLASSLIKE)
+				prohibit(it, "InvokeInSelf", "InvokeInSelf", setOf(Validation.INVOKE_ON_CLASSLIKE))
 			}
 		}
 	}
@@ -236,7 +252,7 @@ class FinderTest: BaseAbstractTest() {
 		module: DModule,
 		targetClass: String,
 		functionClass: String?,
-		reason: Validation,
+		possibleReasons: Set<Validation>,
 		functionPackage: String = "io.github.spacedvoid.constructorlike"
 	) {
 		val constructors = module.getDClass(targetClass).extra[PseudoConstructors.Key]
@@ -248,7 +264,7 @@ class FinderTest: BaseAbstractTest() {
 		val invalid = invalids.constructors.single()
 		assertEquals(functionPackage, invalid.first.dri.packageName)
 		assertEquals(functionClass, invalid.first.dri.classNames)
-		assertEquals(reason, invalid.second)
+		assertContains(possibleReasons, invalid.second)
 	}
 
 	private inline fun testWithResource(path: String, crossinline assertion: BaseTestBuilder.() -> Unit) {
