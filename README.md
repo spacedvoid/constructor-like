@@ -64,18 +64,18 @@ and must be in the same module and package with the function so that the plugin 
 
 Then, the function must be an `operator fun invoke` or its name must match the target type's simple name.
 
-For ease of parsing, we define a *helper* for the function to act as a constructor:
-it is either the receiver of the function or the classlike owning the function.
-While a function can have no helper in case it is a package-level non-extension non-`operator fun invoke` function,
-it cannot have two helpers: the function cannot be an extension in a classlike.
+For ease of parsing, we define a *receiver* for the function to act as a constructor:
+for extension functions, it is the receiver itself, and for member functions, it is the classlike owning the function.
+While a function can have no *receiver* in case it is a package-level non-extension non-`operator fun invoke` function,
+it cannot have two *receivers*: the function cannot be an extension member function.
 
-Finally, it is validated based on the helper's kind:
+Finally, it is validated based on the receiver's kind:
 - `companion object`: the target type must be the parent of the companion if the function is an `operator fun invoke`,
-  otherwise the target type must be a nested class of the parent of the helper.
+  otherwise the target type must be a nested class of the parent of the receiver.
 - Plain classlikes: the function must not be an `operator fun invoke`,
-  the target type must be a nested class of the helper,
-  and if the helper is not an `object`, the target type must also be `inner`.
-- No helper: the target type must be a package-level class.
+  the target type must be a nested class of the receiver,
+  and if the receiver is not an `object`, the target type must also be `inner`.
+- No receiver: the target type must be a package-level class.
 
 If the function violates anything from above, the plugin will raise a warning and will not include the function as a pseudo-constructor.
 
@@ -118,7 +118,7 @@ class MyClass { // Also applies to abstract classes and interfaces
 		// Bad: it is an extension
 		@ConstructorLike
 		fun Any.NestedClass(): NestedClass
-		// Will not be presented afterward, the function can either be an extension or be in a classlike, but not both.
+		// Will not be presented afterward, the function can either be an extension or a member, but not both.
 
 		// Bad: it is not named `NestedClass`
 		@ConstructorLike

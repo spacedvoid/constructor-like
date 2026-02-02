@@ -16,9 +16,9 @@ import org.jetbrains.dokka.model.DModule
 import org.jetbrains.dokka.model.properties.ExtraProperty
 
 /**
- * @property helper `null` if and only if the function has no receiver and is top-level.
+ * @property receiver `null` if and only if the function is not an extension and is top-level.
  */
-class PseudoConstructor(original: DFunction, val helper: DRI?, val target: DRI) {
+class PseudoConstructor(original: DFunction, val receiver: DRI?, val target: DRI) {
 	@OptIn(ExperimentalDokkaApi::class)
 	val constructor: DFunction = original.copy(isConstructor = true)
 

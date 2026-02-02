@@ -44,11 +44,11 @@ class ConstructorLikeFinder: DocumentableTransformer {
 	 * An in-order DFS that shallowly collects the functions in the scope and verifies the cumulated functions,
 	 * then recurse into the child scopes, and finishes by recording valid pseudo-constructors.
 	 *
-	 * This works because a helper(or its parent if it's a companion) only refers to its direct child classes when validating,
+	 * This works because a receiver(or its parent if it's a companion) only refers to its direct child classes when validating,
 	 * and the target type can only be created by functions in the parent or child scopes of itself.
 	 * When the target type looks for its pseudo-constructors, all relevant functions would already have been validated.
 	 *
-	 * @param isCompanion Because companion objects are not standalone objects, it cannot be used as a helper like other classlikes.
+	 * @param isCompanion Because companion objects are not standalone objects, it cannot be used as a receiver like other classlikes.
 	 *                    Instead, its parent will resolve its companion with itself.
 	 */
 	@Suppress("UNCHECKED_CAST")
@@ -88,7 +88,7 @@ class ConstructorLikeFinder: DocumentableTransformer {
 		this.functions.forEach {
 			if(!it.isConstructorLike) return@forEach
 			when(val estimation = resolve(it)) {
-				is Found -> constructors.add(PseudoConstructor(it, estimation.helper, estimation.target))
+				is Found -> constructors.add(PseudoConstructor(it, estimation.receiver, estimation.target))
 				is Invalid -> constructors.addInvalid(it, estimation.reason)
 			}
 		}
@@ -136,23 +136,23 @@ class ConstructorLikeFinder: DocumentableTransformer {
 		}
 	}
 
-	private fun <T> PseudoConstructorMap.validateWith(helper: T) where T: Documentable, T: WithScope {
-		val childClasslikesToIsInner = helper.classlikes.associate { it.dri to it.isInner }
-		val (topLevel, instanceHelper) = getByHelper(helper).partition { it.helper == null }
+	private fun <T> PseudoConstructorMap.validateWith(receiver: T) where T: Documentable, T: WithScope {
+		val childClasslikesToIsInner = receiver.classlikes.associate { it.dri to it.isInner }
+		val (topLevel, instanceReceiver) = getByReceiver(receiver).partition { it.receiver == null }
 		topLevel.forEach { it.validation = Validation.VALID }
-		instanceHelper.forEach {
+		instanceReceiver.forEach {
 			val isInner = childClasslikesToIsInner[it.target]
 			it.validation = when {
 				it.constructor.name == "invoke" -> Validation.INVOKE_ON_CLASSLIKE
-				isInner == null || (helper !is DObject && !isInner) -> Validation.TARGET_NOT_INNER
+				isInner == null || (receiver !is DObject && !isInner) -> Validation.TARGET_NOT_INNER
 				else -> Validation.VALID
 			}
 		}
-		val companion = (helper as? WithCompanion)?.companion ?: return
-		getByHelper(companion).forEach {
+		val companion = (receiver as? WithCompanion)?.companion ?: return
+		getByReceiver(companion).forEach {
 			it.validation = when {
 				it.constructor.name == "invoke" ->
-					if(it.target == helper.dri) Validation.VALID else Validation.TARGET_NOT_PARENT_OF_COMPANION
+					if(it.target == receiver.dri) Validation.VALID else Validation.TARGET_NOT_PARENT_OF_COMPANION
 				it.target !in childClasslikesToIsInner -> Validation.TARGET_NOT_NESTED
 				childClasslikesToIsInner.getValue(it.target) -> Validation.TARGET_IS_INNER
 				else -> Validation.VALID
@@ -162,18 +162,18 @@ class ConstructorLikeFinder: DocumentableTransformer {
 }
 
 private sealed interface Resolution {
-	class Found(val helper: DRI?, val target: DRI): Resolution
+	class Found(val receiver: DRI?, val target: DRI): Resolution
 
 	class Invalid(val reason: Validation): Resolution
 }
 
 private class PseudoConstructorMap {
-	private val byHelper = mutableMapOf<DRI, MutableList<PseudoConstructor>>()
+	private val byReceiver = mutableMapOf<DRI, MutableList<PseudoConstructor>>()
 	private val byTarget = mutableMapOf<DRI, MutableList<PseudoConstructor>>()
 	private val invalids = mutableListOf<Pair<DFunction, Validation>>()
 
 	fun add(constructor: PseudoConstructor) {
-		this.byHelper.getOrPut(constructor.helper ?: constructor.target) { mutableListOf() }.add(constructor)
+		this.byReceiver.getOrPut(constructor.receiver ?: constructor.target) { mutableListOf() }.add(constructor)
 		this.byTarget.getOrPut(constructor.target) { mutableListOf() }.add(constructor)
 	}
 
@@ -182,11 +182,11 @@ private class PseudoConstructorMap {
 	}
 
 	/**
-	 * Includes functions that have a `null` [helper][PseudoConstructor.helper],
-	 * which uses its [target][PseudoConstructor.target] as the helper instead.
+	 * Includes functions that have a `null` [receiver][PseudoConstructor.receiver],
+	 * which uses its [target][PseudoConstructor.target] as the receiver instead.
 	 */
-	fun getByHelper(helper: Documentable): List<PseudoConstructor> =
-		this.byHelper[helper.dri]?.filter { helper.sourceSets.containsAll(it.constructor.sourceSets) } ?: listOf()
+	fun getByReceiver(receiver: Documentable): List<PseudoConstructor> =
+		this.byReceiver[receiver.dri]?.filter { receiver.sourceSets.containsAll(it.constructor.sourceSets) } ?: listOf()
 
 	fun getByTarget(target: Documentable): List<PseudoConstructor> =
 		this.byTarget[target.dri]
@@ -195,7 +195,7 @@ private class PseudoConstructorMap {
 
 	fun invalidConstructors(): List<Pair<DFunction, Validation>> =
 		this.invalids.plus(
-			this.byHelper.values.asSequence()
+			this.byReceiver.values.asSequence()
 			.flatten()
 			.filter { it.validation != Validation.VALID }
 			.map { it.constructor to it.validation }

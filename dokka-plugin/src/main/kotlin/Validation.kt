@@ -19,15 +19,15 @@ enum class Validation(private val message: String) {
 	RECEIVER_NOT_CLASSLIKE("the receiver is not a class type"),
 	EXTENSION_IN_CLASSLIKE("the function is an extension in a class type"),
 	NOT_OPERATOR("the function is not marked 'operator'"),
-	INVOKE_NEITHER_EXTENSION_NOR_IN_CLASSLIKE("the function is not an extension of a companion object or is not in a class type"),
+	INVOKE_NEITHER_EXTENSION_NOR_IN_CLASSLIKE("the function is not an extension of a companion object or is not a member"),
 	NAME_NOT_TARGET("the name of the function does not match the return type"),
 	TARGET_NOT_TOP_LEVEL("the target type is not package-level"),
 	// Used by [ConstructorLikeFinder.recordPseudoConstructors]
 	TARGET_IS_INVALID_CLASSLIKE("the target type is an annotation class, enum class, or object"),
 	// Used by [PseudoConstructorMap.validateWith]
-	INVOKE_ON_CLASSLIKE("the function is in a class type or is an extension to one"),
+	INVOKE_ON_CLASSLIKE("the function is a member or an extension"),
 	TARGET_IS_INNER("the target type is an inner class"),
-	TARGET_NOT_INNER("the target type is not an inner class of the class type"),
+	TARGET_NOT_INNER("the target type is not an inner class"),
 	TARGET_NOT_NESTED("the target type is not a nested class"),
 	TARGET_NOT_PARENT_OF_COMPANION("the target type is not the parent of the companion object"),
 	// Default

@@ -26,7 +26,7 @@ import kotlin.test.fail
  */
 @Suppress("TestMethodWithoutAssertion")
 class FinderTest: BaseAbstractTest() {
-	//region Companion helper
+	//region Companion receiver
 
 	@Test
 	fun `allow invoke in companion object`() {
@@ -120,7 +120,7 @@ class FinderTest: BaseAbstractTest() {
 
 	//endregion
 
-	//region Object helper
+	//region Object receiver
 
 	@Test
 	fun `allow named for nested on object`() {
@@ -133,7 +133,7 @@ class FinderTest: BaseAbstractTest() {
 
 	//endregion
 
-	//region Class instance helper
+	//region Class instance receiver
 
 	@Test
 	fun `prohibit invoke on parent for nested class`() {
@@ -164,7 +164,7 @@ class FinderTest: BaseAbstractTest() {
 
 	//endregion
 
-	//region No helper
+	//region No receiver
 
 	@Test
 	fun `allow package-level function with same name as class`() {
@@ -211,9 +211,9 @@ class FinderTest: BaseAbstractTest() {
 	private fun allow(
 		module: DModule,
 		targetClass: String,
-		helperClass: String?,
+		receiverClass: String?,
 		functionClass: String?,
-		helperPackage: String = "io.github.spacedvoid.constructorlike",
+		receiverPackage: String = "io.github.spacedvoid.constructorlike",
 		functionPackage: String = "io.github.spacedvoid.constructorlike"
 	) {
 		val injected = module.getDClass(targetClass).extra[PseudoConstructors.Key]
@@ -222,13 +222,13 @@ class FinderTest: BaseAbstractTest() {
 		val constructor = injected.constructors[0]
 		assertEquals(functionPackage, constructor.constructor.dri.packageName)
 		assertEquals(functionClass, constructor.constructor.dri.classNames)
-		if(helperClass != null) {
-			val helper = constructor.helper
-			assertNotNull(helper)
-			assertEquals(helperPackage, helper.packageName)
-			assertEquals(helperClass, helper.classNames)
+		if(receiverClass != null) {
+			val receiver = constructor.receiver
+			assertNotNull(receiver)
+			assertEquals(receiverPackage, receiver.packageName)
+			assertEquals(receiverClass, receiver.classNames)
 		}
-		else assertNull(constructor.helper)
+		else assertNull(constructor.receiver)
 		assertEquals(Validation.VALID, constructor.validation)
 	}
 
