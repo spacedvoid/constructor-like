@@ -36,25 +36,28 @@ class ConstructorLikeFinder: DocumentableTransformer {
 	override fun invoke(original: DModule, context: DokkaContext): DModule {
 		val map = PseudoConstructorMap()
 		return original.recordPseudoConstructors(map).also {
-			map.invalidConstructors().forEach { context.logger.warn(it.second.messageForLogging(it.first)) }
+			it.extra[InvalidPseudoConstructors.Key]?.constructors?.forEach {
+				context.logger.warn(it.second.messageForLogging(it.first))
+			}
 		}
 	}
 
 	/**
-	 * An in-order DFS that shallowly collects the functions in the scope and verifies the cumulated functions,
+	 * An in-order DFS that shallowly collects the functions in the scope and validates the cumulated functions,
 	 * then recurse into the child scopes, and finishes by recording valid pseudo-constructors.
+	 * Companion objects are traversed before validating the functions.
 	 *
-	 * This works because a receiver(or its parent if it's a companion) only refers to its direct child classes when validating,
+	 * This works because a receiver only refers to its direct child classes when validating,
 	 * and the target type can only be created by functions in the parent or child scopes of itself.
 	 * When the target type looks for its pseudo-constructors, all relevant functions would already have been validated.
 	 *
-	 * @param isCompanion Because companion objects are not standalone objects, it cannot be used as a receiver like other classlikes.
-	 *                    Instead, its parent will resolve its companion with itself.
+	 * @param siblings Information of sibling classlikes mapped to whether it is an inner class.
+	 *                 Only used when [T] is a companion object, `null` otherwise.
 	 */
 	@Suppress("UNCHECKED_CAST")
 	private fun <T: Documentable> T.recordPseudoConstructors(
 		constructors: PseudoConstructorMap,
-		isCompanion: Boolean = false
+		siblings: Map<DRI, Boolean>? = null
 	): T = when(this) {
 		is DModule -> copy(
 			packages = this.packages.map { it.recordPseudoConstructors(constructors) },
@@ -75,7 +78,7 @@ class ConstructorLikeFinder: DocumentableTransformer {
 		is DEnum -> copy(classlikes = processScope(constructors)).also {
 			constructors.getByTarget(this).forEach { it.validation = Validation.TARGET_IS_INVALID_CLASSLIKE }
 		}
-		is DObject -> copy(classlikes = processScope(constructors, isCompanion)).also {
+		is DObject -> copy(classlikes = processScope(constructors, siblings)).also {
 			constructors.getByTarget(this).forEach { it.validation = Validation.TARGET_IS_INVALID_CLASSLIKE }
 		}
 		else -> this
@@ -83,7 +86,7 @@ class ConstructorLikeFinder: DocumentableTransformer {
 
 	private fun <T> T.processScope(
 		constructors: PseudoConstructorMap,
-		isCompanion: Boolean = false
+		siblings: Map<DRI, Boolean>? = null
 	): List<DClasslike> where T: Documentable, T: WithScope {
 		this.functions.forEach {
 			if(!it.isConstructorLike) return@forEach
@@ -100,8 +103,9 @@ class ConstructorLikeFinder: DocumentableTransformer {
 		 */
 		val companionDri = (this as? WithCompanion)?.companion?.dri
 		val (companion, classlikes) = this.classlikes.partition { it.dri == companionDri }
-		val newCompanion = companion.singleOrNull()?.recordPseudoConstructors(constructors, isCompanion = true)
-		if(!isCompanion) constructors.validateWith(this)
+		val children = classlikes.associate { it.dri to it.isInner }
+		val newCompanion = companion.singleOrNull()?.recordPseudoConstructors(constructors, children)
+		constructors.validateWith(this, children, siblings)
 		val otherClassLikes = classlikes.map { it.recordPseudoConstructors(constructors) }
 		return listOfNotNull(newCompanion) + otherClassLikes
 	}
@@ -136,25 +140,30 @@ class ConstructorLikeFinder: DocumentableTransformer {
 		}
 	}
 
-	private fun <T> PseudoConstructorMap.validateWith(receiver: T) where T: Documentable, T: WithScope {
-		val childClasslikesToIsInner = receiver.classlikes.associate { it.dri to it.isInner }
+	/**
+	 * @param children Similar structure with [siblings]:
+	 *                 child classlikes of the [receiver] except the companion object
+	 *                 mapped to whether it is an inner class.
+	 */
+	private fun PseudoConstructorMap.validateWith(
+		receiver: Documentable,
+		children: Map<DRI, Boolean>,
+		siblings: Map<DRI, Boolean>?
+	) {
 		val (topLevel, instanceReceiver) = getByReceiver(receiver).partition { it.receiver == null }
-		topLevel.forEach { it.validation = Validation.VALID }
+		topLevel.forEach { it.validation = Validation.VALID } // All cases checked from [resolve]
 		instanceReceiver.forEach {
-			val isInner = childClasslikesToIsInner[it.target]
+			val targetIsInnerChild = children[it.target]
+			val targetIsInnerSibling = siblings?.get(it.target)
 			it.validation = when {
-				it.constructor.name == "invoke" -> Validation.INVOKE_ON_CLASSLIKE
-				isInner == null || (receiver !is DObject && !isInner) -> Validation.TARGET_NOT_INNER
-				else -> Validation.VALID
-			}
-		}
-		val companion = (receiver as? WithCompanion)?.companion ?: return
-		getByReceiver(companion).forEach {
-			it.validation = when {
-				it.constructor.name == "invoke" ->
-					if(it.target == receiver.dri) Validation.VALID else Validation.TARGET_NOT_PARENT_OF_COMPANION
-				it.target !in childClasslikesToIsInner -> Validation.TARGET_NOT_NESTED
-				childClasslikesToIsInner.getValue(it.target) -> Validation.TARGET_IS_INNER
+				it.constructor.name == "invoke" -> when {
+					siblings == null -> Validation.INVOKE_ON_CLASSLIKE
+					it.target != receiver.dri.parent -> Validation.TARGET_NOT_PARENT_OF_COMPANION
+					else -> Validation.VALID
+				}
+				targetIsInnerSibling == null && targetIsInnerChild == null -> Validation.TARGET_NOT_NESTED
+				targetIsInnerSibling == true -> Validation.TARGET_IS_INNER
+				targetIsInnerChild == false && receiver !is DObject -> Validation.TARGET_NOT_INNER
 				else -> Validation.VALID
 			}
 		}
@@ -196,8 +205,8 @@ private class PseudoConstructorMap {
 	fun invalidConstructors(): List<Pair<DFunction, Validation>> =
 		this.invalids.plus(
 			this.byReceiver.values.asSequence()
-			.flatten()
-			.filter { it.validation != Validation.VALID }
-			.map { it.constructor to it.validation }
+				.flatten()
+				.filter { it.validation != Validation.VALID }
+				.map { it.constructor to it.validation }
 		)
 }

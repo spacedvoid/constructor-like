@@ -58,7 +58,8 @@ class FinderTest: BaseAbstractTest() {
 					setOf(
 						Validation.INVOKE_ON_CLASSLIKE,
 						Validation.TARGET_NOT_NESTED,
-						Validation.TARGET_NOT_PARENT_OF_COMPANION
+						Validation.TARGET_NOT_PARENT_OF_COMPANION,
+						Validation.EXTENSION_IN_CLASSLIKE
 					)
 				)
 			}
@@ -205,6 +206,55 @@ class FinderTest: BaseAbstractTest() {
 		testWithResource("TopLevelExtension.kt") {
 			documentablesTransformationStage = {
 				prohibit(it, "TopLevelExtension", null, setOf(Validation.TARGET_NOT_INNER, Validation.TARGET_NOT_NESTED))
+			}
+		}
+	}
+
+	//endregion
+
+	//region Classlikes in object
+
+	@Test
+	fun `named for class in object`() {
+		testWithResource("NamedForClassInObject.kt") {
+			documentablesTransformationStage = {
+				allow(it, "InObject", "NamedForClassInObject", "NamedForClassInObject")
+			}
+		}
+	}
+
+	@Test
+	fun `invoke for class in object`() {
+		testWithResource("InvokeForClassInObject.kt") {
+			documentablesTransformationStage = {
+				allow(it, "InObject", "InvokeForClassInObject.InObject.Companion", "InvokeForClassInObject.InObject.Companion")
+			}
+		}
+	}
+
+	//endregion
+
+	//region Classlikes in companion
+
+	/*
+	 * Not really used in practice, but these are still valid Kotlin.
+	 * We'll only check for valid cases.
+	 */
+
+	@Test
+	fun `named for class in companion`() {
+		testWithResource("NamedForClassInCompanion.kt") {
+			documentablesTransformationStage = {
+				allow(it, "InCompanion", "NamedForClassInCompanion.Companion", "NamedForClassInCompanion.Companion")
+			}
+		}
+	}
+
+	@Test
+	fun `invoke for class in companion`() {
+		testWithResource("InvokeForClassInCompanion.kt") {
+			documentablesTransformationStage = {
+				allow(it, "InCompanion", "InvokeForClassInCompanion.Companion.InCompanion.Companion", "InvokeForClassInCompanion.Companion.InCompanion.Companion")
 			}
 		}
 	}

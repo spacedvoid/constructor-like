@@ -72,6 +72,7 @@ it cannot have two *receivers*: the function cannot be an extension member funct
 Finally, it is validated based on the receiver's kind:
 - `companion object`: the target type must be the parent of the companion if the function is an `operator fun invoke`,
   otherwise the target type must be a nested class of the parent of the receiver.
+  Other functions that do not target the parent classlike will be parsed regarding the companion as an `object`.
 - Plain classlikes: the function must not be an `operator fun invoke`,
   the target type must be a nested class of the receiver,
   and if the receiver is not an `object`, the target type must also be `inner`.
