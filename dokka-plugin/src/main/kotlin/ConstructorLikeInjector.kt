@@ -31,7 +31,6 @@ import org.jetbrains.dokka.pages.PageNode
 import org.jetbrains.dokka.pages.RootPageNode
 import org.jetbrains.dokka.pages.TabbedContentTypeExtra
 import org.jetbrains.dokka.pages.TextStyle
-import org.jetbrains.dokka.pages.TokenStyle
 import org.jetbrains.dokka.plugability.DokkaContext
 import org.jetbrains.dokka.plugability.plugin
 import org.jetbrains.dokka.plugability.querySingle
@@ -100,7 +99,7 @@ class ConstructorLikeInjector(private val context: DokkaContext): PageTransforme
 	}
 }
 
-private inline fun <reified T: ContentNode> ContentGroup.replacing(index: Int, crossinline replacement: (T) -> ContentNode): ContentGroup =
+private inline fun <reified T: ContentNode> ContentGroup.replacing(index: Int, replacement: (T) -> ContentNode): ContentGroup =
 	copy(children = this.children.toMutableList().also { it[index] = replacement(it[index] as T) })
 
 internal fun PageContentBuilder.DocumentableContentBuilder.addSignature(documentable: Documentable) {
@@ -117,11 +116,11 @@ private fun PageContentBuilder.DocumentableContentBuilder.addGenericsToSignature
 ): ContentGroup = buildGroup(kind = ContentKind.Symbol, styles = setOf(TextStyle.Monospace)) {
 	val constructorTextIndex = signature.children.indexOfFirst { it is ContentText && it.text == "constructor" }
 	repeat(constructorTextIndex) { +signature.children[it] }
-	text("<", styles = setOf(TextStyle.Monospace, TokenStyle.Operator))
+	operator("<")
 	generics.forEachIndexed { index, it ->
 		+buildSignature(it)
-		if(index < generics.size - 1) text(", ", styles = setOf(TextStyle.Monospace, TokenStyle.Punctuation))
+		if(index < generics.size - 1) punctuation(", ")
 	}
-	text("> ", styles = setOf(TextStyle.Monospace, TokenStyle.Operator))
+	operator("> ")
 	for(i in constructorTextIndex..<signature.children.size) +signature.children[i]
 }

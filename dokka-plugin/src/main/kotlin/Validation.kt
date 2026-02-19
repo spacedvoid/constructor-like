@@ -30,6 +30,7 @@ enum class Validation(private val message: String) {
 	TARGET_NOT_INNER("the target type is not an inner class"),
 	TARGET_NOT_NESTED("the target type is not a nested class"),
 	TARGET_NOT_PARENT_OF_COMPANION("the target type is not the parent of the companion object"),
+	RECEIVER_NOT_FOUND("the receiver cannot be found or is in a different module, hence the function cannot be validated"),
 	// Default
 	TARGET_NOT_FOUND("the target type cannot be found or is in a different module");
 

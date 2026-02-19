@@ -6,13 +6,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-@file:OptIn(ExperimentalDokkaApi::class)
-
 package io.github.spacedvoid.constructorlike.dokkaplugin
 
 import io.github.spacedvoid.constructorlike.dokkaplugin.Resolution.Found
 import io.github.spacedvoid.constructorlike.dokkaplugin.Resolution.Invalid
-import org.jetbrains.dokka.ExperimentalDokkaApi
 import org.jetbrains.dokka.links.DRI
 import org.jetbrains.dokka.links.DriOfUnit
 import org.jetbrains.dokka.links.parent
@@ -98,7 +95,7 @@ class ConstructorLikeFinder: DocumentableTransformer {
 		/*
 		 * We can't trust [WithCompanion.companion] since Dokka itself transforms a documentable
 		 * by only mapping its [WithScope.classlikes] and ignoring the `companion` property,
-		 * which causes the `companion` instances to be different objects.
+		 * which causes the companion [DObject] instances to be different objects.
 		 * And we need to separate the companion from other classlikes anyway.
 		 */
 		val companionDri = (this as? WithCompanion)?.companion?.dri
@@ -197,9 +194,15 @@ private class PseudoConstructorMap {
 	fun getByReceiver(receiver: Documentable): List<PseudoConstructor> =
 		this.byReceiver[receiver.dri]?.filter { receiver.sourceSets.containsAll(it.constructor.sourceSets) } ?: listOf()
 
+	/**
+	 * Also marks [Validation.TARGET_NOT_FOUND] functions to [Validation.RECEIVER_NOT_FOUND].
+	 */
 	fun getByTarget(target: Documentable): List<PseudoConstructor> =
-		this.byTarget[target.dri]
-			?.filter { target.sourceSets.containsAll(it.constructor.sourceSets) && it.validation == Validation.VALID }
+		this.byTarget[target.dri]?.asSequence()
+			?.filter { target.sourceSets.containsAll(it.constructor.sourceSets) }
+			?.onEach { if(it.validation == Validation.TARGET_NOT_FOUND) it.validation = Validation.RECEIVER_NOT_FOUND }
+			?.filter { it.validation == Validation.VALID }
+			?.toList()
 			?: listOf()
 
 	fun invalidConstructors(): List<Pair<DFunction, Validation>> =
