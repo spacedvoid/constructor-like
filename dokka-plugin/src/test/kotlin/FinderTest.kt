@@ -8,18 +8,17 @@
 
 package io.github.spacedvoid.constructorlike.dokkaplugin
 
+import org.intellij.lang.annotations.Language
 import org.jetbrains.dokka.base.testApi.testRunner.BaseAbstractTest
-import org.jetbrains.dokka.base.testApi.testRunner.BaseTestBuilder
-import org.jetbrains.dokka.model.DClass
+import org.jetbrains.dokka.model.DClasslike
 import org.jetbrains.dokka.model.DModule
+import org.jetbrains.dokka.model.properties.WithExtraProperties
 import org.jetbrains.dokka.model.withDescendants
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.test.fail
 
 /**
  * - `...invoke...`: `operator fun invoke` functions
@@ -27,164 +26,70 @@ import kotlin.test.fail
  */
 @Suppress("TestMethodWithoutAssertion")
 class FinderTest: BaseAbstractTest() {
+	//region Basic: top level targets
+
 	//region Companion receiver
 
 	@Test
 	fun `allow invoke in companion object`() {
-		testWithResource("InCompanion.kt") {
-			documentablesTransformationStage = {
-				allow(it, "InCompanion", "InCompanion.Companion", "InCompanion.Companion")
+		testWithCode("""
+			class InCompanion {
+				companion object {
+					@ConstructorLike
+					operator fun invoke(): InCompanion = TODO()
+				}
 			}
+		""".trimIndent()) {
+			allow()
 		}
 	}
 
 	@Test
 	fun `allow invoke extension on companion object`() {
-		testWithResource("CompanionExtension.kt") {
-			documentablesTransformationStage = {
-				allow(it, "CompanionExtension", "CompanionExtension.Companion", null)
+		testWithCode("""
+			class CompanionExtension {
+				companion object
 			}
+
+			@ConstructorLike
+			operator fun CompanionExtension.Companion.invoke(): CompanionExtension = TODO()
+		""".trimIndent()) {
+			allow()
 		}
 	}
 
 	@Test
 	fun `prohibit invoke extension in companion object`() {
-		testWithResource("ExtensionInCompanion.kt") {
-			documentablesTransformationStage = {
-				prohibit(
-					it,
-					"ExtensionInCompanion",
-					"ExtensionInCompanion.Companion",
-					setOf(
-						Validation.INVOKE_ON_CLASSLIKE,
-						Validation.TARGET_NOT_NESTED,
-						Validation.TARGET_NOT_PARENT_OF_COMPANION,
-						Validation.EXTENSION_IN_CLASSLIKE
-					)
-				)
+		testWithCode("""
+			class ExtensionInCompanion {
+				companion object {
+					@ConstructorLike
+					operator fun ExtensionInCompanion.Companion.invoke(): ExtensionInCompanion = TODO()
+				}
 			}
-		}
-	}
-
-	@Test
-	fun `prohibit invoke on non-companion`() {
-		testWithResource("InvokeOnNonCompanion.kt") {
-			documentablesTransformationStage = {
-				prohibit(
-					it,
-					"InvokeOnNonCompanion",
-					"InvokeOnNonCompanion.NestedClass",
-					setOf(Validation.INVOKE_ON_CLASSLIKE)
+		""".trimIndent()) {
+			prohibit(
+				setOf(
+					Validation.INVOKE_ON_CLASSLIKE,
+					Validation.TARGET_NOT_NESTED,
+					Validation.TARGET_NOT_PARENT_OF_COMPANION,
+					Validation.EXTENSION_IN_CLASSLIKE
 				)
-			}
-		}
-	}
-
-	@Test
-	fun `prohibit named extension in companion for nested class`() {
-		testWithResource("ExtensionOnCompanionForNested.kt") {
-			documentablesTransformationStage = {
-				prohibit(
-					it,
-					"NestedClass",
-					"ExtensionOnCompanionForNested.Companion",
-					setOf(Validation.EXTENSION_IN_CLASSLIKE)
-				)
-			}
+			)
 		}
 	}
 
 	@Test
 	fun `prohibit invoke in companion with bad return type`() {
-		testWithResource("BadReturnType.kt") {
-			documentablesTransformationStage = {
-				prohibit(it, "Something", "BadReturnType.Companion", setOf(Validation.TARGET_NOT_PARENT_OF_COMPANION))
+		testWithCode("""
+			class BadReturnType {
+				companion object {
+					@ConstructorLike
+					operator fun invoke(): Any = TODO()
+				}
 			}
-		}
-	}
-
-	@Test
-	fun `allow named on companion for nested class`() {
-		testWithResource("NestedTarget.kt") {
-			documentablesTransformationStage = {
-				allow(it, "NestedClass", "NestedTarget.Companion", "NestedTarget.Companion")
-			}
-		}
-	}
-
-	@Test
-	fun `prohibit invoke on companion for nested class`() {
-		testWithResource("InvokeOnCompanionForNested.kt") {
-			documentablesTransformationStage = {
-				prohibit(it, "NestedClass", "InvokeOnCompanionForNested.Companion", setOf(Validation.TARGET_NOT_PARENT_OF_COMPANION))
-			}
-		}
-	}
-
-	@Test
-	fun `prohibit invoke on companion for inner class`() {
-		testWithResource("InvokeOnCompanionForInner.kt") {
-			documentablesTransformationStage = {
-				prohibit(it, "Inner", "InvokeOnCompanionForInner.Companion",setOf(Validation.TARGET_NOT_PARENT_OF_COMPANION))
-			}
-		}
-	}
-
-	@Test
-	fun `prohibit named on companion for inner class`() {
-		testWithResource("NamedOnCompanionForInner.kt") {
-			documentablesTransformationStage = {
-				prohibit(it, "Inner", "NamedOnCompanionForInner.Companion", setOf(Validation.TARGET_IS_INNER))
-			}
-		}
-	}
-
-	//endregion
-
-	//region Object receiver
-
-	@Test
-	fun `allow named for nested on object`() {
-		testWithResource("NamedOnObject.kt") {
-			documentablesTransformationStage = {
-				allow(it, "NestedClass", "NamedOnObject", "NamedOnObject")
-			}
-		}
-	}
-
-	//endregion
-
-	//region Class instance receiver
-
-	@Test
-	fun `prohibit invoke on parent for nested class`() {
-		testWithResource("InvokeOnParentForNested.kt") {
-			documentablesTransformationStage = {
-				prohibit(it, "NestedClass", "InvokeInCompanionForInner", setOf(Validation.INVOKE_ON_CLASSLIKE))
-			}
-		}
-	}
-
-	@Test
-	fun `allow named on parent for inner class`() {
-		testWithResource("NamedOnParentForInner.kt") {
-			documentablesTransformationStage = {
-				allow(it, "InnerClass", "NamedOnParentForInner", "NamedOnParentForInner")
-			}
-		}
-	}
-
-	@Test
-	fun `prohibit named extension on parent for inner class`() {
-		testWithResource("NamedExtensionOnParentForInner.kt") {
-			documentablesTransformationStage = {
-				prohibit(
-					it,
-					"InnerClass",
-					"NamedExtensionOnParentForInner",
-					setOf(Validation.EXTENSION_IN_CLASSLIKE)
-				)
-			}
+		""".trimIndent()) {
+			prohibit(setOf(Validation.TARGET_NOT_PARENT_OF_COMPANION))
 		}
 	}
 
@@ -194,68 +99,25 @@ class FinderTest: BaseAbstractTest() {
 
 	@Test
 	fun `allow named package-level function`() {
-		testWithResource("TopLevelFunction.kt") {
-			documentablesTransformationStage = {
-				allow(it, "TopLevelFunction", null, null)
-			}
+		testWithCode("""
+			class TopLevelFunction
+
+			@ConstructorLike
+			fun TopLevelFunction(unused: Int): TopLevelFunction = TODO()
+		""".trimIndent()) {
+			allow()
 		}
 	}
 
 	@Test
 	fun `prohibit named package-level extension`() {
-		testWithResource("TopLevelExtension.kt") {
-			documentablesTransformationStage = {
-				prohibit(it, "TopLevelExtension", null, setOf(Validation.TARGET_NOT_INNER, Validation.TARGET_NOT_NESTED))
-			}
-		}
-	}
+		testWithCode("""
+			class TopLevelExtension
 
-	//endregion
-
-	//region Classlikes in object
-
-	@Test
-	fun `named for class in object`() {
-		testWithResource("NamedForClassInObject.kt") {
-			documentablesTransformationStage = {
-				allow(it, "InObject", "NamedForClassInObject", "NamedForClassInObject")
-			}
-		}
-	}
-
-	@Test
-	fun `invoke for class in object`() {
-		testWithResource("InvokeForClassInObject.kt") {
-			documentablesTransformationStage = {
-				allow(it, "InObject", "InvokeForClassInObject.InObject.Companion", "InvokeForClassInObject.InObject.Companion")
-			}
-		}
-	}
-
-	//endregion
-
-	//region Classlikes in companion
-
-	/*
-	 * Not really used in practice, but these are still valid Kotlin.
-	 * We'll only check for valid cases.
-	 */
-
-	@Test
-	fun `named for class in companion`() {
-		testWithResource("NamedForClassInCompanion.kt") {
-			documentablesTransformationStage = {
-				allow(it, "InCompanion", "NamedForClassInCompanion.Companion", "NamedForClassInCompanion.Companion")
-			}
-		}
-	}
-
-	@Test
-	fun `invoke for class in companion`() {
-		testWithResource("InvokeForClassInCompanion.kt") {
-			documentablesTransformationStage = {
-				allow(it, "InCompanion", "InvokeForClassInCompanion.Companion.InCompanion.Companion", "InvokeForClassInCompanion.Companion.InCompanion.Companion")
-			}
+			@ConstructorLike
+			fun Any.TopLevelExtension(): TopLevelExtension = TODO()
+		""".trimIndent()) {
+			prohibit(setOf(Validation.TARGET_NOT_INNER, Validation.TARGET_NOT_NESTED, Validation.RECEIVER_NOT_FOUND))
 		}
 	}
 
@@ -265,74 +127,297 @@ class FinderTest: BaseAbstractTest() {
 
 	@Test
 	fun `prohibit invoke in self`() {
-		testWithResource("InvokeInSelf.kt") {
-			documentablesTransformationStage = {
-				prohibit(it, "InvokeInSelf", "InvokeInSelf", setOf(Validation.INVOKE_ON_CLASSLIKE))
+		testWithCode("""
+			class InvokeInSelf {
+				@ConstructorLike
+				operator fun invoke(): InvokeInSelf = TODO()
 			}
+		""".trimIndent()) {
+			prohibit(setOf(Validation.INVOKE_ON_CLASSLIKE))
 		}
 	}
 
 	//endregion
 
-	private fun allow(
-		module: DModule,
-		targetClass: String,
-		receiverClass: String?,
-		functionClass: String?,
-		receiverPackage: String = "io.github.spacedvoid.constructorlike",
-		functionPackage: String = "io.github.spacedvoid.constructorlike"
-	) {
-		val injected = module.getDClass(targetClass).extra[PseudoConstructors.Key]
-		assertNotNull(injected)
-		assertEquals(1, injected.constructors.size)
-		val constructor = injected.constructors[0]
-		assertEquals(functionPackage, constructor.constructor.dri.packageName)
-		assertEquals(functionClass, constructor.constructor.dri.classNames)
-		if(receiverClass != null) {
-			val receiver = constructor.receiver
-			assertNotNull(receiver)
-			assertEquals(receiverPackage, receiver.packageName)
-			assertEquals(receiverClass, receiver.classNames)
+	//endregion Basic
+
+	//region Nested: targets in classlikes
+
+	//region Nested class in class
+
+	@Test
+	fun `allow named on companion for nested class`() {
+		testWithCode(
+			"""
+			class NestedTarget {
+				companion object {
+					@ConstructorLike
+					fun NestedClass(): NestedClass = TODO()
+				}
+
+				class NestedClass
+			}
+		""".trimIndent()
+		) {
+			allow()
 		}
-		else assertNull(constructor.receiver)
-		assertEquals(Validation.VALID, constructor.validation)
 	}
 
-	private fun prohibit(
-		module: DModule,
-		targetClass: String,
-		functionClass: String?,
-		possibleReasons: Set<Validation>,
-		functionPackage: String = "io.github.spacedvoid.constructorlike"
-	) {
-		val constructors = module.getDClass(targetClass).extra[PseudoConstructors.Key]
-		assertNotNull(constructors)
-		assertTrue(constructors.constructors.isEmpty())
-		val invalids = module.extra[InvalidPseudoConstructors.Key]
-		assertNotNull(invalids)
-		assertEquals(1, invalids.constructors.size)
-		val invalid = invalids.constructors.single()
-		assertEquals(functionPackage, invalid.first.dri.packageName)
-		assertEquals(functionClass, invalid.first.dri.classNames)
-		assertContains(possibleReasons, invalid.second)
+	@Test
+	fun `prohibit invoke on non-companion`() {
+		testWithCode("""
+			class InvokeOnNonCompanion {
+				class NestedClass {
+					@ConstructorLike
+					operator fun invoke(): InvokeOnNonCompanion = TODO()
+				}
+			}
+		""".trimIndent()) {
+			prohibit(setOf(Validation.INVOKE_ON_CLASSLIKE))
+		}
 	}
 
-	private inline fun testWithResource(path: String, crossinline assertion: BaseTestBuilder.() -> Unit) {
+	@Test
+	fun `prohibit named extension in companion for nested class`() {
+		testWithCode("""
+			class ExtensionOnCompanionForNested {
+				companion object {
+					@ConstructorLike
+					fun ExtensionOnCompanionForNested.Companion.NestedClass(): NestedClass = TODO()
+				}
+
+				class NestedClass
+			}
+		""".trimIndent()) {
+			prohibit(setOf(Validation.EXTENSION_IN_CLASSLIKE))
+		}
+	}
+
+	@Test
+	fun `prohibit invoke on companion for nested class`() {
+		testWithCode("""
+			class InvokeOnCompanionForNested {
+				companion object {
+					@ConstructorLike
+					operator fun invoke(): NestedClass = TODO()
+				}
+
+				class NestedClass
+			}
+		""".trimIndent()) {
+			prohibit(setOf(Validation.TARGET_NOT_PARENT_OF_COMPANION))
+		}
+	}
+
+	@Test
+	fun `prohibit invoke on parent for nested class`() {
+		testWithCode("""
+			class InvokeInCompanionForInner {
+				class NestedClass
+
+				@ConstructorLike
+				operator fun invoke(): NestedClass = TODO()
+			}
+		""".trimIndent()) {
+			prohibit(setOf(Validation.INVOKE_ON_CLASSLIKE))
+		}
+	}
+
+	//endregion
+
+	//region Inner class in class
+
+	@Test
+	fun `allow named on parent for inner class`() {
+		testWithCode(
+			"""
+			class NamedOnParentForInner {
+				inner class InnerClass
+
+				@ConstructorLike
+				fun InnerClass(): InnerClass = TODO()
+			}
+		""".trimIndent()
+		) {
+			allow()
+		}
+	}
+
+	@Test
+	fun `prohibit invoke on companion for inner class`() {
+		testWithCode("""
+			class InvokeOnCompanionForInner {
+				companion object {
+					@ConstructorLike
+					operator fun invoke(): Inner = TODO()
+				}
+
+				inner class Inner
+			}
+		""".trimIndent()) {
+			prohibit(setOf(Validation.TARGET_NOT_PARENT_OF_COMPANION))
+		}
+	}
+
+	@Test
+	fun `prohibit named on companion for inner class`() {
+		testWithCode("""
+			class NamedOnCompanionForInner {
+				companion object {
+					@ConstructorLike
+					fun Inner(): Inner = TODO()
+				}
+
+				inner class Inner
+			}
+		""".trimIndent()) {
+			prohibit(setOf(Validation.TARGET_IS_INNER))
+		}
+	}
+
+	@Test
+	fun `prohibit named extension on parent for inner class`() {
+		testWithCode("""
+			class NamedExtensionOnParentForInner {
+				inner class InnerClass
+
+				@ConstructorLike
+				fun Any.InnerClass(): InnerClass = TODO()
+			}
+		""".trimIndent()) {
+			prohibit(setOf(Validation.EXTENSION_IN_CLASSLIKE))
+		}
+	}
+
+	//endregion
+
+	//region Class in object
+
+	@Test
+	fun `allow named for nested on object`() {
+		testWithCode("""
+			object NamedOnObject {
+				class NestedClass
+
+				@ConstructorLike
+				fun NestedClass(): NestedClass = TODO()
+			}
+		""".trimIndent()) {
+			allow()
+		}
+	}
+
+	@Test
+	fun `allow invoke for class in object`() {
+		testWithCode("""
+			object InvokeForClassInObject {
+				class InObject {
+					companion object {
+						@ConstructorLike
+			            operator fun invoke(): InObject = TODO()
+					}
+				}
+			}
+		""".trimIndent()) {
+			allow()
+		}
+	}
+
+	//endregion
+
+	//region Class in companion
+
+	/*
+	 * Not really used in practice, but these are still valid Kotlin.
+	 * We'll only check for valid cases.
+	 */
+
+	@Test
+	fun `named for class in companion`() {
+		testWithCode("""
+			class NamedForClassInCompanion {
+				companion object {
+					class InCompanion
+
+					@ConstructorLike
+					fun InCompanion(): InCompanion = TODO()
+				}
+			}
+		""".trimIndent()) {
+			allow()
+		}
+	}
+
+	@Test
+	fun `invoke for class in companion`() {
+		testWithCode("""
+			class InvokeForClassInCompanion {
+				companion object {
+					class InCompanion {
+						companion object {
+							@ConstructorLike
+							operator fun invoke(): InCompanion = TODO()
+						}
+					}
+				}
+			}
+		""".trimIndent()) {
+			allow()
+		}
+	}
+
+	//endregion
+
+	//endregion
+
+	private inline fun testWithCode(@Language("kotlin") code: String, crossinline assertions: DModule.() -> Unit) {
 		val configuration = dokkaConfiguration {
 			sourceSets {
 				sourceSet {
-					sourceRoots = listOf(getTestDataDir(path).toString())
+					sourceRoots = listOf("src/main/kotlin")
 				}
 			}
 		}
-		val plugin = ConstructorLikePlugin()
-		testFromData(configuration, pluginOverrides = listOf(plugin)) {
-			assertion()
+		testInline(codePrefix + code, configuration, pluginOverrides = listOf(ConstructorLikePlugin())) {
+			documentablesTransformationStage = {
+				it.assertions()
+			}
 		}
 	}
-}
 
-private fun DModule.getDClass(className: String): DClass =
-	withDescendants().filterIsInstance<DClass>()
-		.singleOrNull { it.name == className }
-		?: fail("Documentable has none or more than one classes named $className")
+	private val codePrefix = """
+		/src/main/kotlin/__TestFile__.kt
+		package io.github.spacedvoid.constructorlike
+		
+		@MustBeDocumented
+		annotation class ConstructorLike
+		
+		
+	""".trimIndent()
+
+	private fun DModule.allow() {
+		val constructors = withDescendants().filterIsInstance<DClasslike>()
+			.mapNotNull {
+				@Suppress("UNCHECKED_CAST")
+				(it as WithExtraProperties<DClasslike>).extra[PseudoConstructors.Key]
+			}
+			.flatMap { it.constructors }
+			.toList()
+		assertEquals(1, constructors.size)
+		assertEquals(Validation.VALID, constructors[0].validation)
+	}
+
+	private fun DModule.prohibit(possibleReasons: Set<Validation>) {
+		val constructors = withDescendants().filterIsInstance<DClasslike>()
+			.mapNotNull {
+				@Suppress("UNCHECKED_CAST")
+				(it as WithExtraProperties<DClasslike>).extra[PseudoConstructors.Key]
+			}
+			.flatMap { it.constructors }
+		assertTrue(constructors.none())
+		val invalids = extra[InvalidPseudoConstructors.Key]?.constructors
+		assertNotNull(invalids)
+		assertEquals(1, invalids.size)
+		assertContains(possibleReasons, invalids[0].second)
+	}
+}

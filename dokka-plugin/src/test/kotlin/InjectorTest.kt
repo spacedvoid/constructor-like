@@ -8,8 +8,8 @@
 
 package io.github.spacedvoid.constructorlike.dokkaplugin
 
+import org.intellij.lang.annotations.Language
 import org.jetbrains.dokka.base.testApi.testRunner.BaseAbstractTest
-import org.jetbrains.dokka.base.testApi.testRunner.BaseTestBuilder
 import org.jetbrains.dokka.links.DRI
 import org.jetbrains.dokka.model.withDescendants
 import org.jetbrains.dokka.pages.ClasslikePageNode
@@ -26,57 +26,77 @@ import kotlin.test.fail
 class InjectorTest: BaseAbstractTest() {
 	@Test
 	fun `generic invoke in companion object`() {
-		testWithResource("GenericInCompanion.kt") {
-			pagesTransformationStage = {
-				val constructors = it.getClassPageNode("GenericInCompanion").constructorsTable()
-				assertEquals(2, constructors.children.size)
-				assertEquals("GenericInCompanion", constructors.children[0].constructorLinkText())
-				val pseudoConstructor = constructors.children[1]
-				assertEquals("invoke", pseudoConstructor.constructorLinkText())
-				val dri = pseudoConstructor.constructorLinkDRI()
-				assertEquals("io.github.spacedvoid.constructorlike", dri.packageName)
-				assertEquals("GenericInCompanion.Companion", dri.classNames)
-				assertTrue(
-					pseudoConstructor.constructorSignature().withDescendants().any { it is ContentText && it.text == "<" },
-					"Signature does not have generics information"
-				)
+		testWithCode("""
+			class GenericInCompanion {
+				companion object {
+					@ConstructorLike
+					operator fun <K: Number> invoke(unused: K): GenericInCompanion = TODO()
+				}
 			}
+		""".trimIndent()) {
+			val constructors = getClassPageNode("GenericInCompanion").constructorsTable()
+			assertEquals(2, constructors.children.size)
+			assertEquals("GenericInCompanion", constructors.children[0].constructorLinkText())
+			val pseudoConstructor = constructors.children[1]
+			assertEquals("invoke", pseudoConstructor.constructorLinkText())
+			val dri = pseudoConstructor.constructorLinkDRI()
+			assertEquals("io.github.spacedvoid.constructorlike", dri.packageName)
+			assertEquals("GenericInCompanion.Companion", dri.classNames)
+			assertTrue(
+				pseudoConstructor.constructorSignature().withDescendants().any { it is ContentText && it.text == "<" },
+				"Signature does not have generics information"
+			)
 		}
 	}
 
 	@Test
 	fun `class with no default constructors`() {
-		testWithResource("ConstructorsTableCreation.kt") {
+		testWithCode("""
+			class ConstructorsTableCreation private constructor() {
+				companion object {
+					@ConstructorLike
+					operator fun invoke(): ConstructorsTableCreation = TODO()
+				}
+			}
+		""".trimIndent()) {
+			val constructors = getClassPageNode("ConstructorsTableCreation").constructorsTable()
+			assertEquals(1, constructors.children.size)
+			assertEquals("invoke", constructors.children[0].constructorLinkText())
+			val dri = constructors.children[0].constructorLinkDRI()
+			assertEquals("io.github.spacedvoid.constructorlike", dri.packageName)
+			assertEquals("ConstructorsTableCreation.Companion", dri.classNames)
+		}
+	}
+
+	private inline fun testWithCode(@Language("kotlin") code: String, crossinline assertions: RootPageNode.() -> Unit) {
+		val configuration = dokkaConfiguration {
+			sourceSets {
+				sourceSet {
+					sourceRoots = listOf("src/main/kotlin")
+				}
+			}
+		}
+		testInline(codePrefix + code, configuration, pluginOverrides = listOf(ConstructorLikePlugin())) {
 			pagesTransformationStage = {
-				val constructors = it.getClassPageNode("ConstructorsTableCreation").constructorsTable()
-				assertEquals(1, constructors.children.size)
-				assertEquals("invoke", constructors.children[0].constructorLinkText())
-				val dri = constructors.children[0].constructorLinkDRI()
-				assertEquals("io.github.spacedvoid.constructorlike", dri.packageName)
-				assertEquals("ConstructorsTableCreation.Companion", dri.classNames)
+				it.assertions()
 			}
 		}
 	}
 
-	private inline fun testWithResource(path: String, crossinline assertion: BaseTestBuilder.() -> Unit) {
-		val configuration = dokkaConfiguration {
-			sourceSets {
-				sourceSet {
-					sourceRoots = listOf(getTestDataDir(path).toString())
-				}
-			}
-		}
-		val plugin = ConstructorLikePlugin()
-		testFromData(configuration, pluginOverrides = listOf(plugin)) {
-			assertion()
-		}
-	}
+	private val codePrefix = """
+		/src/main/kotlin/__TestFile__.kt
+		package io.github.spacedvoid.constructorlike
+		
+		annotation class ConstructorLike
+		
+		
+	""".trimIndent()
+
 }
 
 private fun RootPageNode.getClassPageNode(className: String): ClasslikePageNode =
 	withDescendants().filterIsInstance<ClasslikePageNode>()
-		.filter { it.name == className }
-		.singleOrNull()
+		.singleOrNull { it.name == className }
 		?: fail("Page has none or more than one classes named $className")
 
 private fun ClasslikePageNode.constructorsTable(): ContentTable =

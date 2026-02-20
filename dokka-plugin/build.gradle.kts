@@ -13,6 +13,7 @@ dependencies {
 	testImplementation("org.jetbrains.dokka:dokka-test-api:2.1.0")
 	testRuntimeOnly("org.jetbrains.dokka:analysis-kotlin-symbols:2.1.0")
 	testImplementation("org.jetbrains.dokka:dokka-base-test-utils:2.1.0")
+	testCompileOnly("org.jetbrains:annotations:26.0.2-1")
 }
 
 tasks.test {
