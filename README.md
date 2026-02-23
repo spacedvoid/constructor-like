@@ -11,7 +11,7 @@ but Kotlin cannot have such feature because we're stuck at this C-style construc
 
 ```kotlin
 class MyClass(val i: Int) { 
-	constructor(s: String): this(s.toInt()) // Might cause `IllegalArgumentException`, but cannot catch it
+	constructor(s: String): this(s.toInt()) // Might cause `IllegalArgumentException`
 }
 ```
 
@@ -30,55 +30,60 @@ fun wrap(i: Int): IntWrapper = object: IntWrapper {
 And sometimes we need a generic constructor:
 
 ```kotlin
-class Logger(val name: String)
+class Logger<T>(val forClass: KClass<T>)
 
-inline fun <reified T> T.createLogger(): Logger = Logger(T::class.qualifiedName)
+inline fun <reified T> T.createLogger(): Logger = Logger(T::class)
 ```
 
 This leads us to using functions that *look like* constructors:
 1. `operator fun invoke` functions in companion objects or an extension to one
 2. Functions with the same name of the class ([`fun Char()`](https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-char.html))
 
-These are what we call *pseudo-constructors*, since they don't look different with normal constructors: `MyClass(<parameters>)`
+These are what we call *pseudo-constructors*,
+since they don't look different with normal constructors: `MyClass(<parameters>)`
 
-Unfortunately, these are not directly shown in the class documentation, since they are technically not constructors.
-Users cannot notice such functions if they are not explicitly documented at each class,
-and by the nature of people about writing documentations, this is a problem.
-
-This plugin aids this by injecting such elements annotated with `@ConstructorLike` to the `Constructors` table of a class documentation:
+This plugin injects such functions to the `Constructors` table of a class documentation:
 ![example-doc](resources/images/example-doc.png)
 
 Because they are *technically not constructors*, this is purely decorative:
 navigating to such constructor leads to the actual definition of the pseudo-constructor,
 which at the example above is an `operator fun invoke` in a companion object,
-and the function's name is displayed at the first column of the `Constructor` table for when using it as a function reference(`::MyClass`).
+and the function's name is displayed at the first column of the `Constructor` table
+for when using it as a function reference(`::MyClass`).
 
 ### Specification details
+
+**Summary:
+If the function can be used with the same syntax as normal constructors in the class
+and is annotated with `@ConstructorLike`, it is a pseudo-constructor.**
 
 To make a function as a pseudo-constructor, it must be annotated with `@ConstructorLike`.
 Other functions will not be included.
 
 The *target type* of the annotated function is its return type.
-The target type must not be `kotlin.Unit`, `kotlin.Nothing`, an `annotation class`, `enum class`, or `object`,
-and must be in the same module and package with the function so that the plugin can inject the constructor to the documentation.
+The target type must not be `kotlin.Unit`, `kotlin.Nothing`, an `annotation class`, `enum class`, or `object`.
+It must also be in the same module and package with the function
+so that the plugin can inject the constructor to the documentation.
 
 Then, the function must be an `operator fun invoke` or its name must match the target type's simple name.
 
-For ease of parsing, we define a *receiver* for the function to act as a constructor:
+For ease of parsing, we define a *receiver type* of the function:
 for extension functions, it is the receiver itself, and for member functions, it is the classlike owning the function.
-While a function can have no *receiver* in case it is a package-level non-extension non-`operator fun invoke` function,
-it cannot have two *receivers*: the function cannot be an extension member function.
+While a function can have no receiver type in case it is a package-level non-extension non-`operator fun invoke` function,
+it cannot have two receiver types: the function cannot be an extension member function.
 
-Finally, it is validated based on the receiver's kind:
+Finally, it is validated based on the receiver type's kind:
 - `companion object`: the target type must be the parent of the companion if the function is an `operator fun invoke`,
-  otherwise the target type must be a nested class of the parent of the receiver.
+  otherwise the target type must be a nested class of the parent of the receiver type.
   Other functions that do not target the parent classlike will be parsed regarding the companion as an `object`.
 - Plain classlikes: the function must not be an `operator fun invoke`,
-  the target type must be a nested class of the receiver,
-  and if the receiver is not an `object`, the target type must also be `inner`.
-- No receiver: the target type must be a package-level class.
+  the target type must be a nested class of the receiver type,
+  and if the receiver type is not an `object`, the target type must also be `inner`.
+- No receiver type: the function must not be an `operator fun invoke`,
+  and the target type must be a package-level classlike.
 
-If the function violates anything from above, the plugin will raise a warning and will not include the function as a pseudo-constructor.
+If the function violates anything from above,
+the plugin will raise a warning and will not include the function as a pseudo-constructor.
 
 <details>
 <summary>Examples</summary>
@@ -202,8 +207,10 @@ fun MyClass.Companion.NestedInObject(): NestedInObject
 
 </details>
 
-In case of `expect`/`actual` declarations, only the `expect` matters since `actual` declarations must match the signature of `expect`:
-but make sure to annotate `actual` declarations with `@ConstructorLike`, otherwise the behavior of the plugin is undefined.
+In case of `expect`/`actual` declarations,
+only the `expect` matters since `actual` declarations must match the signature of `expect`.
+But make sure to annotate `actual` declarations with `@ConstructorLike` too,
+otherwise the behavior of the plugin is undefined.
 
 # License
 
