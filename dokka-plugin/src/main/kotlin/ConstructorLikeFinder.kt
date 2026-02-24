@@ -30,14 +30,12 @@ import org.jetbrains.dokka.plugability.DokkaContext
 import org.jetbrains.dokka.transformers.documentation.DocumentableTransformer
 
 class ConstructorLikeFinder: DocumentableTransformer {
-	override fun invoke(original: DModule, context: DokkaContext): DModule {
-		val map = PseudoConstructorMap()
-		return original.recordPseudoConstructors(map).also {
+	override fun invoke(original: DModule, context: DokkaContext): DModule =
+		original.recordPseudoConstructors(PseudoConstructorMap()).also {
 			it.extra[InvalidPseudoConstructors.Key]?.constructors?.forEach {
 				context.logger.warn(it.second.messageForLogging(it.first))
 			}
 		}
-	}
 
 	/**
 	 * An in-order DFS that shallowly collects the functions in the scope and validates the cumulated functions,
@@ -103,8 +101,8 @@ class ConstructorLikeFinder: DocumentableTransformer {
 		val children = classlikes.associate { it.dri to it.isInner }
 		val newCompanion = companion.singleOrNull()?.recordPseudoConstructors(constructors, children)
 		constructors.validateWith(this, children, siblings)
-		val otherClassLikes = classlikes.map { it.recordPseudoConstructors(constructors) }
-		return listOfNotNull(newCompanion) + otherClassLikes
+		val newClassLikes = classlikes.map { it.recordPseudoConstructors(constructors) }
+		return listOfNotNull(newCompanion) + newClassLikes
 	}
 
 	/**
@@ -152,6 +150,7 @@ class ConstructorLikeFinder: DocumentableTransformer {
 		instanceReceiver.forEach {
 			val targetIsInnerChild = children[it.target]
 			val targetIsInnerSibling = siblings?.get(it.target)
+			//TODO: Reasons of invalid functions in companion objects are overridden
 			it.validation = when {
 				it.constructor.name == "invoke" -> when {
 					siblings == null -> Validation.INVOKE_ON_CLASSLIKE
