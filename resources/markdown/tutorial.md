@@ -1,4 +1,4 @@
-# <code style="color:#e7bf6a">@ConstructorLike</code>
+# `@ConstructorLike`
 
 This annotation probably means nothing: just use the constructor.
 If your compiler complains that such constructor doesn't exist, add an import to a symbol named `invoke`
